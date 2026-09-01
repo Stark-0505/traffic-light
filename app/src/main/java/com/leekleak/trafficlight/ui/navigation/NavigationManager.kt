@@ -39,6 +39,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
@@ -68,6 +70,8 @@ fun NavigationManager() {
 
     val entryProvider = koinEntryProvider<Any>()
 
+    val density = LocalDensity.current
+
     Scaffold(
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         bottomBar = {
@@ -75,7 +79,19 @@ fun NavigationManager() {
                 modifier = Modifier
                     .fillMaxWidth()
                     .navigationBarsPadding()
-                    .padding(8.dp),
+                    .padding(8.dp)
+                    .then(
+                        // Report the bar's real, laid-out footprint (pill + its own 8dp
+                        // margins, already excluding the system nav-bar inset consumed by
+                        // navigationBarsPadding() above) back to the main screens that
+                        // reserve space for it - only while it's actually showing, so a
+                        // screen transition never latches the collapsed/exiting size.
+                        if (showBottomBar) {
+                            Modifier.onGloballyPositioned { coordinates ->
+                                navigator.navBarHeight = with(density) { coordinates.size.height.toDp() }
+                            }
+                        } else Modifier
+                    ),
                 contentAlignment = Alignment.Center
             ) {
                 AnimatedVisibility(
@@ -95,8 +111,8 @@ fun NavigationManager() {
                         ),
                         content = {
                             NavigationButton(navigator, OverviewKey, stringResource(R.string.overview), R.drawable.overview)
-                            NavigationButton(navigator, DataPlansKey, stringResource(R.string.plans), R.drawable.sim_card)
                             NavigationButton(navigator, HistoryKey, stringResource(R.string.history), R.drawable.history)
+                            NavigationButton(navigator, AppsKey, stringResource(R.string.apps), R.drawable.apps)
                         },
                     )
                 }

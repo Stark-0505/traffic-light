@@ -5,8 +5,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.datastore.preferences.core.booleanPreferencesKey
-import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.glance.ColorFilter
 import androidx.glance.GlanceId
@@ -19,46 +17,44 @@ import androidx.glance.LocalSize
 import androidx.glance.action.actionStartActivity
 import androidx.glance.action.clickable
 import androidx.glance.appwidget.GlanceAppWidget
-import androidx.glance.appwidget.LinearProgressIndicator
 import androidx.glance.appwidget.SizeMode
 import androidx.glance.appwidget.cornerRadius
 import androidx.glance.appwidget.provideContent
 import androidx.glance.appwidget.state.getAppWidgetState
 import androidx.glance.appwidget.state.updateAppWidgetState
 import androidx.glance.background
-import androidx.glance.currentState
 import androidx.glance.layout.Alignment
 import androidx.glance.layout.Box
 import androidx.glance.layout.Column
-import androidx.glance.layout.ContentScale
 import androidx.glance.layout.Row
 import androidx.glance.layout.fillMaxSize
-import androidx.glance.layout.fillMaxWidth
-import androidx.glance.layout.height
 import androidx.glance.layout.padding
 import androidx.glance.preview.ExperimentalGlancePreviewApi
 import androidx.glance.preview.Preview
 import androidx.glance.state.PreferencesGlanceStateDefinition
 import androidx.glance.text.Text
-import androidx.glance.text.TextAlign
 import androidx.glance.text.TextStyle
 import com.leekleak.trafficlight.MainActivity
 import com.leekleak.trafficlight.R
 import com.leekleak.trafficlight.database.AppPreferenceRepo
-import com.leekleak.trafficlight.database.DataPlan
-import com.leekleak.trafficlight.database.DataPlanDao
+import com.leekleak.trafficlight.database.DataType
+import com.leekleak.trafficlight.database.UsageQuery
 import com.leekleak.trafficlight.model.NetworkUsageManager
-import com.leekleak.trafficlight.ui.theme.backgrounds
 import com.leekleak.trafficlight.util.DataSize
+import com.leekleak.trafficlight.util.valueOfOrNull
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import org.koin.mp.KoinPlatform
 import timber.log.Timber
-import java.text.DecimalFormat
-import kotlin.math.max
+import java.time.LocalDate
 
-class Widget: GlanceAppWidget() {
+/**
+ * Shows today's usage for one network (Mobile Data by default, or whatever was chosen in
+ * [WidgetConfigureActivity]) - no local quota/plan to configure, since the app no longer
+ * tracks one. This mirrors Overview's own headline figure rather than a separate concept.
+ */
+class Widget : GlanceAppWidget() {
     override val stateDefinition = PreferencesGlanceStateDefinition
 
     override val sizeMode: SizeMode = SizeMode.Exact
@@ -72,49 +68,37 @@ class Widget: GlanceAppWidget() {
     override suspend fun provideGlance(context: Context, id: GlanceId) {
         val koinInstance = KoinPlatform.getKoin()
         val networkUsageManager: NetworkUsageManager = koinInstance.get()
-        val dataPlanDao: DataPlanDao = koinInstance.get()
         val appPreferenceRepo: AppPreferenceRepo = koinInstance.get()
 
         val state = getAppWidgetState(context, stateDefinition, id)
-
-        val dataPlan = withContext(Dispatchers.IO) {
-            state[SUBSCRIBER_ID_HASH]?.let { dataPlanDao.getByHash(it) }
-        }?: return
-
-        val dataPlanSnapshot = dataPlan.getUsageSnapshot(networkUsageManager)
+        val network = state[NETWORK]?.let { valueOfOrNull<DataType>(it) } ?: DataType.Mobile
 
         val sizeMetric = appPreferenceRepo.sizeMetric.first()
-        val usage = dataPlanSnapshot.mainDataUsed
-        val usageSize = DataSize(usage).getAsUnit(dataPlanSnapshot.mainDataSizeUnit, sizeMetric)
-        val dataMax = dataPlan.mainDataSize.getAsUnit(dataPlanSnapshot.mainDataSizeUnit, sizeMetric)
-        val formatter = DecimalFormat("0.##")
-
-        val usageString = formatter.format(usageSize)
-        val quotaString = formatter.format(dataMax)
-        val unitString = dataPlanSnapshot.mainDataSizeUnit.name
+        val usage = withContext(Dispatchers.IO) {
+            networkUsageManager.totalDayUsage(UsageQuery(network), LocalDate.now())
+        }
+        val dataSize = DataSize(usage)
+        // provideGlance() is a plain suspend function, not a @Composable one - the widget's
+        // content only enters composition inside provideContent {} below. DataSize's
+        // @Composable formattedParts() reads the user's unit preference from a Compose
+        // CompositionLocal, which isn't available here. toStringParts() is the same
+        // formatting logic as a plain function that takes the preference directly - and
+        // sizeMetric (fetched above) was already being read from prefs but never applied
+        // before, so this also fixes the widget silently ignoring the user's chosen unit.
+        val (usageString, decimalString, unitString) = dataSize.toStringParts(extraPrecision = true, metric = sizeMetric)
 
         var stateChanged = false
-
         updateAppWidgetState(context, PreferencesGlanceStateDefinition, id) { prefs ->
             val mutable = prefs.toMutablePreferences()
-
-            if (
-                (mutable[LAST_USAGE] == usageString) &&
-                (mutable[LAST_MAX] == quotaString) &&
-                (mutable[BACKGROUND] == dataPlan.uiBackground) &&
-                (mutable[LAST_UNIT] == unitString) &&
-                (mutable[FORCE_REFRESH] != true)
-            ) {
+            val combined = "$usageString$decimalString $unitString"
+            if (mutable[LAST_USAGE] == combined && mutable[LAST_NETWORK] == network.name) {
                 Timber.i("Skipping widget refresh")
                 mutable
             } else {
                 stateChanged = true
                 mutable.apply {
-                    this[LAST_USAGE] = usageString
-                    this[LAST_MAX] = quotaString
-                    this[BACKGROUND] = dataPlan.uiBackground
-                    this[LAST_UNIT] = unitString
-                    this[FORCE_REFRESH] = false
+                    this[LAST_USAGE] = combined
+                    this[LAST_NETWORK] = network.name
                 }
             }
         }
@@ -124,22 +108,12 @@ class Widget: GlanceAppWidget() {
         Timber.i("Updating widget")
         provideContent {
             GlanceTheme {
-                BoxBackground(dataPlan, currentState(SIM_NUMBER) ?: 0, currentState(CARRIER_NAME) ?: "") {
-                    if (dataPlan.configured) {
-                        ConfiguredWidgetContent(
-                            usageString = usageString,
-                            quotaString = quotaString,
-                            unitString = unitString,
-                            progress = usageSize / max(dataMax, 1.0),
-                            dataMax = dataMax,
-                            resetString = dataPlan.resetString(context),
-                        )
-                    } else {
-                        UnconfiguredWidgetContent(
-                            usageString = usageString,
-                            unitString = unitString,
-                        )
-                    }
+                BoxBackground {
+                    WidgetContent(
+                        usageString = "$usageString$decimalString",
+                        unitString = unitString,
+                        network = network,
+                    )
                 }
             }
         }
@@ -157,31 +131,13 @@ class Widget: GlanceAppWidget() {
     @Composable
     @Preview(widthDp = 400, heightDp = 200)
     private fun Preview() {
-        BoxBackground(
-            dataPlan = DataPlan("", "", uiBackground = 2),
-            simNumber = 1,
-            carrierName = "AT&T"
-        ) {
-            ConfiguredWidgetContent(
-                usageString = "8.5",
-                quotaString = "20",
-                unitString = "GB",
-                progress = 8.5 / 20.0,
-                resetString = "Resets in 8 days",
-                dataMax = 20.0
-            )
+        BoxBackground {
+            WidgetContent(usageString = "8.5", unitString = "GB", network = DataType.Mobile)
         }
     }
 
     @Composable
-    private fun ConfiguredWidgetContent(
-        usageString: String,
-        quotaString: String,
-        unitString: String,
-        progress: Double,
-        resetString: String,
-        dataMax: Double
-    ) {
+    private fun WidgetContent(usageString: String, unitString: String, network: DataType) {
         val size = LocalSize.current
         val usageFontSize = (size.width.value / 4).coerceIn(32f, 72f).sp
         val unitFontSize = (usageFontSize.value * 0.56).sp
@@ -197,97 +153,32 @@ class Widget: GlanceAppWidget() {
             ) {
                 Text(
                     text = usageString,
-                    style = TextStyle(
-                        color = GlanceTheme.colors.onSurface,
-                        fontSize = usageFontSize,
-                    ),
-                    maxLines = 1,
-                )
-                Text(
-                    text = "${if (dataMax != 0.0) "/$quotaString" else "" }$unitString",
-                    style = TextStyle(
-                        color = GlanceTheme.colors.onSurface,
-                        fontSize = unitFontSize,
-                    ),
-                    maxLines = 1,
-                )
-            }
-        }
-        Column(
-            modifier = GlanceModifier.fillMaxSize().padding(16.dp),
-            verticalAlignment = Alignment.Bottom,
-        ) {
-            Text(
-                modifier = GlanceModifier.fillMaxWidth().padding(bottom = 8.dp),
-                text = resetString,
-                style = TextStyle(
-                    color = GlanceTheme.colors.onSurface,
-                    fontSize = 16.sp,
-                    textAlign = TextAlign.Center
-                ),
-            )
-            if (dataMax != 0.0) {
-                LinearProgressIndicator(
-                    modifier = GlanceModifier
-                        .height(4.dp)
-                        .fillMaxWidth(),
-                    color = GlanceTheme.colors.primary,
-                    backgroundColor = GlanceTheme.colors.primaryContainer,
-                    progress = progress.toFloat(),
-                )
-            }
-        }
-    }
-
-    @Composable
-    private fun UnconfiguredWidgetContent(usageString: String, unitString: String) {
-        val size = LocalSize.current
-        val usageFontSize = (size.width.value / 4).coerceIn(32f, 72f).sp
-        val unitFontSize = (usageFontSize.value * 0.56).sp
-
-        Column(
-            modifier = GlanceModifier.fillMaxSize(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            Row(
-                modifier = GlanceModifier.padding(bottom = 8.dp),
-                verticalAlignment = Alignment.Bottom,
-            ) {
-                Text(
-                    text = usageString,
-                    style = TextStyle(
-                        color = GlanceTheme.colors.onSurface,
-                        fontSize = usageFontSize,
-                    ),
+                    style = TextStyle(color = GlanceTheme.colors.onSurface, fontSize = usageFontSize),
                     maxLines = 1,
                 )
                 Text(
                     text = unitString,
-                    style = TextStyle(
-                        color = GlanceTheme.colors.onSurface,
-                        fontSize = unitFontSize,
-                    ),
+                    style = TextStyle(color = GlanceTheme.colors.onSurface, fontSize = unitFontSize),
                     maxLines = 1,
                 )
             }
-            Text(
-                text = LocalContext.current.getString(R.string.this_month),
-                style = TextStyle(
-                    color = GlanceTheme.colors.onSurface,
-                    fontSize = 18.sp,
-                ),
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Image(
+                    provider = ImageProvider(if (network == DataType.Wifi) R.drawable.wifi else R.drawable.cellular),
+                    contentDescription = null,
+                    modifier = GlanceModifier.padding(end = 4.dp),
+                    colorFilter = ColorFilter.tint(GlanceTheme.colors.onSurfaceVariant)
+                )
+                Text(
+                    text = LocalContext.current.getString(R.string.today),
+                    style = TextStyle(color = GlanceTheme.colors.onSurfaceVariant, fontSize = 14.sp),
+                )
+            }
         }
     }
 
     @Composable
-    private fun BoxBackground(
-        dataPlan: DataPlan,
-        simNumber: Int,
-        carrierName: String,
-        content: @Composable (() -> Unit)
-    ) {
+    private fun BoxBackground(content: @Composable (() -> Unit)) {
         val cornerRadius = 24.dp
         Box(
             modifier = GlanceModifier
@@ -299,60 +190,17 @@ class Widget: GlanceAppWidget() {
             Box(
                 modifier = GlanceModifier
                     .background(GlanceTheme.colors.surface)
+                    .fillMaxSize()
                     .cornerRadius(cornerRadius)
             ) {
-                backgrounds.getOrNull(dataPlan.uiBackground)?.let { background ->
-                    Image(
-                        modifier = GlanceModifier.fillMaxSize(),
-                        provider = ImageProvider(background),
-                        contentDescription = null,
-                        contentScale = ContentScale.Crop,
-                        colorFilter = ColorFilter.tint(GlanceTheme.colors.primaryContainer)
-                    )
-                }
-                Row(GlanceModifier.padding(12.dp).fillMaxWidth()) {
-                    SimIcon(simNumber)
-                    Text(
-                        modifier = GlanceModifier.fillMaxWidth().defaultWeight(),
-                        text = carrierName,
-                        style = TextStyle(
-                            color = GlanceTheme.colors.onSurface,
-                            textAlign = TextAlign.End
-                        ),
-                        maxLines = 1,
-                    )
-                }
                 content()
             }
         }
     }
 
-    @Composable
-    private fun SimIcon(number: Int) {
-        Box(contentAlignment = Alignment.Center) {
-            Image(
-                provider = ImageProvider(R.drawable.sim_card),
-                contentDescription = null,
-                colorFilter = ColorFilter.tint(GlanceTheme.colors.onSurface)
-            )
-            Text(
-                modifier = GlanceModifier.padding(top = 2.dp, start = 0.5.dp),
-                text = number.toString(),
-                style = TextStyle(
-                    color = GlanceTheme.colors.onSurface,
-                    fontSize = 12.sp,
-                ),
-            )
-        }
-    }
     companion object {
-        val SUBSCRIBER_ID_HASH = stringPreferencesKey("sub_id")
-        val CARRIER_NAME = stringPreferencesKey("carrier")
-        val SIM_NUMBER = intPreferencesKey("sim_number")
+        val NETWORK = stringPreferencesKey("widget_network")
+        val LAST_NETWORK = stringPreferencesKey("last_network")
         val LAST_USAGE = stringPreferencesKey("last_usage")
-        val LAST_MAX = stringPreferencesKey("last_max")
-        val LAST_UNIT = stringPreferencesKey("last_unit")
-        val BACKGROUND = intPreferencesKey("ui_background")
-        val FORCE_REFRESH = booleanPreferencesKey("force_refresh")
     }
 }

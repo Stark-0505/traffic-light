@@ -7,12 +7,10 @@ import android.content.Intent
 import android.content.Intent.ACTION_SCREEN_OFF
 import android.content.Intent.ACTION_SCREEN_ON
 import android.content.IntentFilter
+import androidx.core.content.ContextCompat
 import androidx.glance.appwidget.GlanceAppWidget
 import androidx.glance.appwidget.GlanceAppWidgetManager
 import androidx.glance.appwidget.GlanceAppWidgetReceiver
-import androidx.glance.appwidget.state.getAppWidgetState
-import androidx.glance.state.PreferencesGlanceStateDefinition
-import com.leekleak.trafficlight.widget.Widget.Companion.SUBSCRIBER_ID_HASH
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import org.koin.core.component.KoinComponent
@@ -35,28 +33,11 @@ class WidgetReceiver: GlanceAppWidgetReceiver(), KoinComponent {
         val pendingResult = goAsync()
         registerReceiver(context)
 
-        /**
-         * Unfortunately Glance widgets have a really stupid rate limit which stops the app from updating
-         * the widget more than once every ~1min.
-         *
-         * The problem is that before widget creation the widget or the launcher or whatever asks the widget to update.
-         * Since, of course, the widget is not yet configured, it returns early, leaving the widget empty.
-         *
-         * The early update also triggers the rate limit which means that after the configuration is
-         * actually done the update fails!
-         *
-         * Very stupid, but if you just ignore and don't update widgets with no subscriberId, it works fine.
-         */
-
         applicationScope.launch {
             for (appWidgetId in appWidgetIds) {
                 try {
                     val glanceId = GlanceAppWidgetManager(context).getGlanceIdBy(appWidgetId)
-                    val prefs = getAppWidgetState(context, PreferencesGlanceStateDefinition, glanceId)
-
-                    if (prefs[SUBSCRIBER_ID_HASH] != null) {
-                        glanceAppWidget.update(context, glanceId)
-                    }
+                    glanceAppWidget.update(context, glanceId)
                 } catch (e: IllegalArgumentException) {
                     Timber.e(e, "Failed to update widget: invalid ID or mismatch")
                 } catch (e: IllegalStateException) {
@@ -84,16 +65,28 @@ class WidgetReceiver: GlanceAppWidgetReceiver(), KoinComponent {
     }
 
     override fun onDisabled(context: Context?) {
-        context?.let { unregisterReceiver(it) }
+        // onDisabled() fires when the last widget instance is removed. Without this, a
+        // currently-scheduled alarm (screen was on when the widget got removed) would
+        // keep firing once a minute forever - there's no more SCREEN_ON/OFF receiver
+        // listening to stop it once unregisterReceiver() below runs.
+        context?.let {
+            killAlarmManager(it)
+            unregisterReceiver(it)
+        }
         super.onDisabled(context)
     }
 
     fun registerReceiver(context: Context) {
         if (registered.exchange(true)) return
-        context.applicationContext.registerReceiver(this, IntentFilter().apply {
-            addAction(ACTION_SCREEN_ON)
-            addAction(ACTION_SCREEN_OFF)
-        })
+        ContextCompat.registerReceiver(
+            context.applicationContext,
+            this,
+            IntentFilter().apply {
+                addAction(ACTION_SCREEN_ON)
+                addAction(ACTION_SCREEN_OFF)
+            },
+            ContextCompat.RECEIVER_NOT_EXPORTED
+        )
     }
 
     fun unregisterReceiver(context: Context) {

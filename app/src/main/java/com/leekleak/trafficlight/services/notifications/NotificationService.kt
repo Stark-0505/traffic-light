@@ -4,10 +4,10 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.LifecycleService
 import androidx.lifecycle.lifecycleScope
 import com.leekleak.trafficlight.database.AppPreferenceRepo
-import com.leekleak.trafficlight.database.DataPlanDao
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import org.koin.android.ext.android.get
@@ -19,7 +19,6 @@ import java.util.concurrent.atomic.AtomicInteger
 
 class NotificationService : LifecycleService() {
     private val appPreferenceRepo: AppPreferenceRepo by inject()
-    private val dataPlanDao: DataPlanDao by inject()
     private var foregroundNotification: PersistentNotification? = null
     private var notificationIDCounter = AtomicInteger(1)
     private val activeNotifications = Collections.synchronizedList(mutableListOf<PersistentNotification>())
@@ -40,10 +39,20 @@ class NotificationService : LifecycleService() {
         super.onCreate()
         Timber.i("Creating UsageService")
 
-        registerReceiver(screenStateReceiver, IntentFilter().apply {
-            addAction(Intent.ACTION_SCREEN_ON)
-            addAction(Intent.ACTION_SCREEN_OFF)
-        })
+        // RECEIVER_NOT_EXPORTED: this receiver only cares about the system's own
+        // ACTION_SCREEN_ON/OFF broadcasts, never broadcasts from other apps, so it has no
+        // reason to be reachable by them. Apps targeting API 33+ must state this
+        // explicitly for context-registered receivers; ContextCompat resolves to a no-op
+        // flag on older platforms instead of requiring an SDK_INT check here.
+        ContextCompat.registerReceiver(
+            this,
+            screenStateReceiver,
+            IntentFilter().apply {
+                addAction(Intent.ACTION_SCREEN_ON)
+                addAction(Intent.ACTION_SCREEN_OFF)
+            },
+            ContextCompat.RECEIVER_NOT_EXPORTED
+        )
 
         lifecycleScope.launch {
             appPreferenceRepo.notification.collect { enabled ->
@@ -59,27 +68,17 @@ class NotificationService : LifecycleService() {
                         updateForegroundNotification()
                         notification.cancel()
                     }
-                }
-            }
-        }
-        lifecycleScope.launch {
-            dataPlanDao.getActivePlansWithNotificationsFlow().collect { list ->
-                val activePlanNotifications = activeNotifications.filterIsInstance<PlanNotification>()
-                list.forEach { plan ->
-                    val notification = activePlanNotifications.find { it.dataPlan == plan }
-                    if (notification != null || !plan.notification) return@forEach
-
-                    val id = notificationIDCounter.getAndIncrement()
-                    val notif = get<PlanNotification> { parametersOf(lifecycleScope, id, plan) }
-                    activeNotifications.add(notif)
-                    notif.start()
-                    updateForegroundNotification()
-                }
-                activePlanNotifications.forEach { notification ->
-                    if (!list.contains(notification.dataPlan)) {
-                        activeNotifications.remove(notification)
-                        updateForegroundNotification()
-                        notification.cancel()
+                    // Nothing left for this service to do - whether because the
+                    // notification the user just turned off was the only one, or because
+                    // it was already off when this collector received its first value
+                    // (e.g. a boot-time start with the preference disabled). Either way,
+                    // an empty, non-foreground LifecycleService has no reason to keep
+                    // running: it would just sit there until the OS reclaims it, and
+                    // START_STICKY would have the OS restart it right back into this same
+                    // empty state.
+                    if (activeNotifications.isEmpty()) {
+                        Timber.i("No active notifications; stopping service")
+                        stopSelf()
                     }
                 }
             }

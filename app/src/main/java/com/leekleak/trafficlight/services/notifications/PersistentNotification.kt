@@ -26,7 +26,7 @@ abstract class PersistentNotification(
     internal var notification: Notification = notificationBuilder.build()
     internal var notificationIconHelper = NotificationIconHelper(context)
     abstract fun start()
-    fun cancel() {
+    open fun cancel() {
         scope.cancel()
         try {
             notificationManager.cancel(notificationId)
@@ -41,13 +41,13 @@ abstract class PersistentNotification(
                 notification,
                 ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
             )
-            Timber.e("STARTED FOREGROUND")
         } else {
             service.startForeground(
                 notificationId,
                 notification,
             )
         }
+        Timber.i("Started foreground notification $notificationId")
     }
 
     internal fun notifySafely(id: Int, notification: Notification) {

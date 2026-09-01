@@ -2,17 +2,19 @@ package com.leekleak.trafficlight.model
 
 import android.app.usage.NetworkStats
 import android.app.usage.NetworkStatsManager
-import app.cash.turbine.test
 import com.leekleak.trafficlight.database.DataDirection
 import com.leekleak.trafficlight.database.DataType
+import com.leekleak.trafficlight.database.HistoryGrouping
 import com.leekleak.trafficlight.database.UsageQuery
 import com.leekleak.trafficlight.ui.history.DateParams
 import com.leekleak.trafficlight.util.toTimestamp
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.slot
+import io.mockk.verify
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -127,32 +129,6 @@ class NetworkUsageManagerTest {
     }
 
     @Test
-    fun `daysUsage flow emits correct data points`() = runTest {
-        val startDate = LocalDate.of(2023, 10, 1)
-        val endDate = LocalDate.of(2023, 10, 2)
-        val query1 = UsageQuery(DataType.Mobile)
-        
-        val mockSummary = mockk<NetworkStats>(relaxed = true)
-        every { networkStatsManager.querySummary(any(), any(), any(), any()) } returns mockSummary
-        
-        var bucketCount = 0
-        val bucketSlot = slot<NetworkStats.Bucket>()
-        every { mockSummary.hasNextBucket() } answers { bucketCount < 1 }
-        every { mockSummary.getNextBucket(capture(bucketSlot)) } answers {
-            setBucketFields(bucketSlot.captured, uid = 1001, txBytes = 500L, rxBytes = 500L)
-            bucketCount++
-            true
-        }
-
-        networkUsageManager.daysUsage(startDate, endDate, query1).test {
-            val updated = awaitItem()
-            assertEquals(1000L, updated[0].y1)
-            
-            awaitComplete()
-        }
-    }
-
-    @Test
     fun `getAllHourUsage distributes usage into slots`() = runTest {
         val dateParams = mockk<DateParams>()
         val start = LocalDate.of(2023, 10, 1)
@@ -245,6 +221,93 @@ class NetworkUsageManagerTest {
          */
         assertEquals(750L, result[0].usage.usage1)
         assertEquals(250L, result[1].usage.usage1)
+    }
+
+    // --- Query-efficiency regression tests -------------------------------------------
+    // These exist to keep the hardening-pass consolidations (periodTotals going straight
+    // to querySummaryForDevice; appPeriodSeries sharing one query across both directions)
+    // from silently regressing back to the heavier query pattern they replaced.
+
+    @Test
+    fun `periodTotals queries querySummaryForDevice only, never the per-UID querySummary`() = runTest {
+        every { networkStatsManager.querySummaryForDevice(any(), any(), any(), any()) } answers {
+            val bucket = NetworkStats.Bucket()
+            setBucketFields(bucket, uid = -1, txBytes = 5000L, rxBytes = 7000L)
+            bucket
+        }
+
+        val result = networkUsageManager.periodTotals(
+            DataType.Mobile,
+            LocalDate.of(2023, 10, 1),
+            LocalDate.of(2023, 10, 2),
+        )
+
+        assertEquals(7000L, result.download)
+        assertEquals(5000L, result.upload)
+        // A total-only request has no need for a per-UID breakdown - only the single
+        // device-aggregated query should ever run.
+        verify(exactly = 0) { networkStatsManager.querySummary(any(), any(), any(), any()) }
+        verify(exactly = 1) { networkStatsManager.querySummaryForDevice(any(), any(), any(), any()) }
+    }
+
+    @Test
+    fun `appPeriodSeries issues one query pair per row, not one per direction`() = runTest {
+        val dataUID = mockk<DataUID>()
+        every { dataUID.uid } returns 1001
+        every { dataUID.uidQuery } returns 1001
+
+        val mockSummary = mockk<NetworkStats>(relaxed = true)
+        every { networkStatsManager.querySummary(any(), any(), any(), any()) } returns mockSummary
+        every { mockSummary.hasNextBucket() } returns false // no buckets needed; only call counts matter here
+        every { networkStatsManager.querySummaryForDevice(any(), any(), any(), any()) } answers {
+            val bucket = NetworkStats.Bucket()
+            setBucketFields(bucket, uid = -1, txBytes = 0L, rxBytes = 0L)
+            bucket
+        }
+
+        val rowCount = 3
+        networkUsageManager.appPeriodSeries(DataType.Mobile, dataUID, HistoryGrouping.Day, count = rowCount)
+
+        // Before this consolidation, App Detail queried Download and Upload separately
+        // per row - i.e. 2x querySummary and 2x querySummaryForDevice per row. One
+        // getNetworkDataForType() call per row already returns both directions, so this
+        // should be exactly one of each per row.
+        verify(exactly = rowCount) { networkStatsManager.querySummary(any(), any(), any(), any()) }
+        verify(exactly = rowCount) { networkStatsManager.querySummaryForDevice(any(), any(), any(), any()) }
+    }
+
+    @Test
+    fun `weeksInMonth clips week ranges to the month's own boundaries`() = runTest {
+        val queriedRanges = mutableListOf<Pair<Long, Long>>()
+        every { networkStatsManager.querySummaryForDevice(any(), any(), any(), any()) } answers {
+            val start = it.invocation.args[2] as Long
+            val end = it.invocation.args[3] as Long
+            queriedRanges.add(start to end)
+            val bucket = NetworkStats.Bucket()
+            setBucketFields(bucket, uid = -1, txBytes = 0L, rxBytes = 0L)
+            bucket
+        }
+
+        // September 2023: Sep 1 is a Friday, so the month's first calendar week starts
+        // in August, and its last calendar week runs into October.
+        val monthStart = LocalDate.of(2023, 9, 1)
+        val monthEndExclusive = LocalDate.of(2023, 10, 1)
+
+        val rows = networkUsageManager.weeksInMonth(DataType.Mobile, monthStart, monthEndExclusive)
+
+        // No returned row should claim a date outside the month...
+        rows.forEach { row ->
+            assertTrue("row start ${row.start} is before the month", !row.start.isBefore(monthStart))
+            assertTrue("row end ${row.endExclusive} is after the month", !row.endExclusive.isAfter(monthEndExclusive))
+        }
+        // ...and the actual NetworkStatsManager queries must have been issued with those
+        // same clipped timestamps, not the full (unclipped) calendar week's.
+        val monthStartStamp = monthStart.toTimestamp()
+        val monthEndStamp = monthEndExclusive.toTimestamp()
+        queriedRanges.forEach { (start, end) ->
+            assertTrue("queried start $start is before the month", start >= monthStartStamp)
+            assertTrue("queried end $end is after the month", end <= monthEndStamp)
+        }
     }
 
     /**

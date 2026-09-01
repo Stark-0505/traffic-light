@@ -6,7 +6,6 @@ import com.leekleak.trafficlight.database.AppPreferenceRepo
 import com.leekleak.trafficlight.database.DataType
 import com.leekleak.trafficlight.database.UsageQuery
 import com.leekleak.trafficlight.model.NetworkUsageManager
-import com.leekleak.trafficlight.util.DataSize
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -37,30 +36,31 @@ class OverviewVM(
         }
     }
 
-    val weekUsage = refresh.map { overviewLogic.getWeekUsage(it) }
+    // Every figure below comes from one shared load per refresh (see loadOverview) rather
+    // than each independently re-querying NetworkStatsManager, so they also represent one
+    // consistent snapshot instead of up to six snapshots taken moments apart.
+    private val overviewData = refresh.map { overviewLogic.loadOverview(it.dataType) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), OverviewData())
+
+    val todayUsage = overviewData.map { it.today }.distinctUntilChanged()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0L)
+
+    val yesterdayUsage = overviewData.map { it.yesterday }.distinctUntilChanged()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0L)
+
+    val changePercent = overviewData.map { it.changePercent }.distinctUntilChanged()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+    val weekTotal = overviewData.map { it.weekTotal }.distinctUntilChanged()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0L)
+
+    val weekUsage = overviewData.map { it.weekUsage }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    val todayUsage = refresh.map { overviewLogic.getTodayUsage(it) }.distinctUntilChanged()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
-
-    val prediction = refresh.map { overviewLogic.getPrediction(it) }.distinctUntilChanged()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
-
-    val trend = refresh.map { overviewLogic.getTrend(it) }.distinctUntilChanged()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
-
-    val topApps = refresh.map { overviewLogic.getTopAppUsage(it) }
+    val topApps = overviewData.map { it.topApps }
         .distinctUntilChanged { old, new ->
             if (old.size != new.size) return@distinctUntilChanged false
-            old.indices.all { i ->
-                val o = old[i]
-                val n = new[i]
-                (
-                    o.app.uid == n.app.uid &&
-                    DataSize(o.usage.usage1).toString() == DataSize(n.usage.usage1).toString() &&
-                    DataSize(o.usage.usage2).toString() == DataSize(n.usage.usage2).toString()
-                )
-            }
+            old.indices.all { i -> old[i].app.uid == new[i].app.uid && old[i].usage.usage1 == new[i].usage.usage1 }
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 }

@@ -6,38 +6,30 @@ import android.net.ConnectivityManager.TYPE_WIFI
 import android.view.View
 import androidx.annotation.DrawableRes
 import androidx.annotation.StringRes
-import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.Icon
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.res.stringResource
 import com.leekleak.trafficlight.R
 import com.leekleak.trafficlight.model.AppManager.Companion.allApp
 import com.leekleak.trafficlight.model.DataUID
 
 /**
- *
  * Data Type
  *
+ * [queryIndex] deliberately uses the deprecated `ConnectivityManager.TYPE_MOBILE`/
+ * `TYPE_WIFI` int constants, not their `NetworkCapabilities.TRANSPORT_*` replacements:
+ * [android.app.usage.NetworkStatsManager.querySummary] and
+ * [android.app.usage.NetworkStatsManager.querySummaryForDevice] both take a `networkType`
+ * parameter typed to this specific legacy constant space, so there is no
+ * non-deprecated value to pass instead - this is a real, unavoidable API constraint of
+ * NetworkStatsManager itself, not a stale leftover.
  */
+@Suppress("DEPRECATION")
 enum class DataType(
     @StringRes val nameRes: Int,
     @DrawableRes val iconRes: Int,
     val queryIndex: Int?
-) : DropdownItem {
+) {
     Mobile(R.string.cellular, R.drawable.cellular, TYPE_MOBILE),
     Wifi(R.string.wifi, R.drawable.wifi, TYPE_WIFI),
     None(R.string.none, R.drawable.close, null);
-
-    @Composable
-    override fun DropdownMenuItem(onClick: () -> Unit) {
-        DropdownMenuItem(
-            text = { Text(stringResource(nameRes)) },
-            onClick = { onClick() },
-            leadingIcon = { Icon(painterResource(iconRes), null) },
-        )
-    }
 }
 
 /**
@@ -48,25 +40,10 @@ enum class DataType(
 enum class DataDirection(
     @StringRes val nameRes: Int,
     @DrawableRes val iconRes: Int
-) : DropdownItem {
+) {
     Bidirectional(R.string.bidirectional, R.drawable.mobiledata_arrows),
     Download(R.string.download, R.drawable.arrow_downward_alt),
     Upload(R.string.upload, R.drawable.arrow_upward_alt);
-
-
-    @Composable
-    override fun DropdownMenuItem(onClick: () -> Unit) {
-        DropdownMenuItem(
-            text = { Text(stringResource(nameRes)) },
-            onClick = { onClick() },
-            leadingIcon = { Icon(painterResource(iconRes), null) },
-        )
-    }
-}
-
-interface DropdownItem {
-    @Composable
-    fun DropdownMenuItem(onClick: () -> Unit)
 }
 
 /**

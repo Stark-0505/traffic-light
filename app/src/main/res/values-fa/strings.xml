@@ -1,6 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">چراغ راهنمایی</string>
     <string name="today">امروز</string>
     <string name="this_week">این هفته</string>
     <string name="history">تاریخچه</string>
@@ -26,15 +25,10 @@
     <string name="force_fallback">اجبار به ردیابی سرعت جایگزین</string>
     <string name="force_fallback_description">هنگام استفاده از رام مشکل‌ دار یا اترنت مفید است</string>
     <string name="fallback_unsupported">حالت جایگزین پشتیبانی نمی‌ شود</string>
-    <string name="ui">رابط کاربری</string>
     <string name="auto">خودکار</string>
     <string name="default_theme">پیش‌ فرض</string>
     <string name="notification_description">ردیابی سرعت شبکه در نوار وضعیت.</string>
-    <string name="missing_permissions">مجوز های لازم موجود نیست</string>
     <string name="total_usage">کل استفاده</string>
-    <string name="unknown">ناشناخته</string>
     <string name="appearance">ظاهر</string>
     <string name="behavior">رفتار</string>
-    <string name="alt_vpn_workaround">راهکار جایگزین فیلترشکن</string>
-    <string name="alt_vpn_workaround_description">دقت اندازه‌گیری را کاهش می‌دهد، اما با تونل‌بندی تفکیکی سازگار است.</string>
 </resources>

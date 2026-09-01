@@ -1,138 +1,99 @@
 package com.leekleak.trafficlight.ui.history
 
-import androidx.activity.compose.LocalActivity
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.spring
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.shrinkVertically
-import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.systemBarsPadding
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.text.input.rememberTextFieldState
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.ButtonGroup
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
-import androidx.compose.material3.FilledIconButton
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.MaterialTheme.colorScheme
-import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.PlainTooltip
-import androidx.compose.material3.SheetValue
 import androidx.compose.material3.Text
-import androidx.compose.material3.TooltipAnchorPosition
-import androidx.compose.material3.TooltipBox
-import androidx.compose.material3.TooltipDefaults
-import androidx.compose.material3.rememberBottomSheetState
-import androidx.compose.material3.rememberTooltipState
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalHapticFeedback
-import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.rememberTextMeasurer
-import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.leekleak.trafficlight.R
-import com.leekleak.trafficlight.charts.LineGraph
-import com.leekleak.trafficlight.charts.ScrollableBarGraph
-import com.leekleak.trafficlight.charts.model.ScrollableBarData
-import com.leekleak.trafficlight.database.DataDirection
+import com.leekleak.trafficlight.charts.BarGraph
+import com.leekleak.trafficlight.charts.model.BarData
 import com.leekleak.trafficlight.database.DataType
-import com.leekleak.trafficlight.database.DropdownItem
-import com.leekleak.trafficlight.database.UsageQuery
-import com.leekleak.trafficlight.model.AppManager
-import com.leekleak.trafficlight.model.AppManager.Companion.allApp
-import com.leekleak.trafficlight.model.AppManager.Companion.otherUsersApp
-import com.leekleak.trafficlight.model.AppManager.Companion.removedApp
-import com.leekleak.trafficlight.model.AppManager.Companion.tetheringApp
-import com.leekleak.trafficlight.model.DataUID
-import com.leekleak.trafficlight.model.DataUIDApp
-import com.leekleak.trafficlight.model.search
+import com.leekleak.trafficlight.database.HistoryGrouping
+import com.leekleak.trafficlight.database.HourUsage
+import com.leekleak.trafficlight.database.PeriodRow
+import com.leekleak.trafficlight.database.PeriodSort
 import com.leekleak.trafficlight.ui.components.BackAction
+import com.leekleak.trafficlight.ui.components.FilterSection
 import com.leekleak.trafficlight.ui.components.HazeScaffold
+import com.leekleak.trafficlight.ui.components.NetworkToggle
+import com.leekleak.trafficlight.ui.components.PeriodToggle
+import com.leekleak.trafficlight.ui.components.RankedAppList
+import com.leekleak.trafficlight.ui.components.UsageTableHeader
+import com.leekleak.trafficlight.ui.components.UsageTableRow
 import com.leekleak.trafficlight.ui.navigation.NAVBAR_PADDING
-import com.leekleak.trafficlight.ui.plans.AppSelector
-import com.leekleak.trafficlight.ui.theme.googleSans
-import com.leekleak.trafficlight.ui.theme.historyItemFont
-import com.leekleak.trafficlight.util.SearchField
-import com.leekleak.trafficlight.util.getName
-import com.leekleak.trafficlight.util.iconToggleButton
-import com.leekleak.trafficlight.util.openLink
-import com.leekleak.trafficlight.util.shelfShape
-import com.leekleak.trafficlight.util.toDp
+import com.leekleak.trafficlight.ui.navigation.Navigator
+import com.leekleak.trafficlight.ui.theme.Spacing
+import com.leekleak.trafficlight.ui.theme.card
+import com.leekleak.trafficlight.util.CategoryTitleSmallText
+import com.leekleak.trafficlight.util.DataSize
+import com.leekleak.trafficlight.util.formatted
 import com.leekleak.trafficlight.util.toLocaleHourString
-import kotlinx.coroutines.launch
 import org.koin.androidx.compose.koinViewModel
 import org.koin.compose.koinInject
-import java.time.LocalTime
+import kotlinx.coroutines.flow.distinctUntilChanged
+import java.time.LocalDate
+import kotlin.math.roundToInt
 
-const val MAX_DAYS = 90
-val imageWidth = 32.dp
-
-@OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3ExpressiveApi::class)
+/**
+ * A structured, scannable table of usage grouped by Day/Week/Month, for exactly one
+ * network at a time. This is the "when was data used" screen: rows are dense and aligned
+ * rather than a stack of large independent cards, per the app's information-first design
+ * language. Month rows expand into an analytical overview rather than just another grouping
+ * of the same list - see [MonthlyOverviewContent].
+ */
 @Composable
 fun History() {
     val viewModel: HistoryVM = koinViewModel()
-    val haptic = LocalHapticFeedback.current
+    val navigator: Navigator = koinInject()
 
-    val usage: List<ScrollableBarData> by viewModel.usageFlow.collectAsStateWithLifecycle()
-
-    val usageQueries by viewModel.queryFlow.collectAsStateWithLifecycle()
-    val listParam by viewModel.listParamFlow.collectAsStateWithLifecycle()
-    val dateParams by viewModel.dateParamsFlow.collectAsStateWithLifecycle()
+    val network by viewModel.networkFlow.collectAsStateWithLifecycle()
+    val grouping by viewModel.groupingFlow.collectAsStateWithLifecycle()
+    val sort by viewModel.sortFlow.collectAsStateWithLifecycle()
+    val rows by viewModel.rows.collectAsStateWithLifecycle()
+    val expandedRow by viewModel.expandedRowFlow.collectAsStateWithLifecycle()
+    val hourly by viewModel.expandedHourly.collectAsStateWithLifecycle()
+    val monthlyOverview by viewModel.monthlyOverview.collectAsStateWithLifecycle()
 
     LifecycleResumeEffect(Unit) {
         viewModel.refresh()
@@ -144,740 +105,247 @@ fun History() {
         scrollState = null,
         hazeState = null,
         backAction = BackAction.None,
-        extraPadding = PaddingValues(bottom = NAVBAR_PADDING),
+        extraPadding = PaddingValues(bottom = navigator.navBarHeight ?: NAVBAR_PADDING),
         actions = {
-            HistoryLegendItem(usageQueries.first, colorScheme.primary, colorScheme.onPrimary)
-            Spacer(Modifier.width(8.dp))
-            HistoryLegendItem(usageQueries.second, colorScheme.tertiary, colorScheme.onTertiary)
+            SortMenu(sort, viewModel::setSort)
         }
     ) { paddingValues ->
         val sidePadding = remember(paddingValues) { paddingValues.calculateLeftPadding(LayoutDirection.Ltr) }
-        val listContentPadding = PaddingValues(sidePadding, sidePadding, sidePadding, paddingValues.calculateBottomPadding())
-        Column (
-            modifier = Modifier
-                .padding(
-                    start = sidePadding,
-                    end = sidePadding,
-                    top = paddingValues.calculateTopPadding()
-                ),
-            verticalArrangement = Arrangement.spacedBy(4.dp)
-        ) {
-            ScrollableBarGraph(usage) {
-                viewModel.updateDateQuery(day = viewModel.getDatesForTimespan().first.plusDays(it.toLong()))
-            }
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .clip(MaterialTheme.shapes.small)
-                    .background(colorScheme.primary)
-                    .padding(horizontal = 4.dp)
-            ) {
-                var showFilter by remember { mutableStateOf(false) }
-                if (showFilter) HistoryFilter { showFilter = false }
-                val filtersChanged by viewModel.filtersChanged.collectAsStateWithLifecycle()
-                ButtonGroup(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(
-                        4.dp,
-                        Alignment.CenterHorizontally
-                    ),
-                    expandedRatio = 0.05f,
-                    overflowIndicator = {}
-                ) {
-                    iconToggleButton(
-                        showBadge = filtersChanged,
-                        selected = showFilter,
-                        onSelect = {
-                            showFilter = true
-                            haptic.performHapticFeedback(HapticFeedbackType.ToggleOn)
-                        }
-                    ) {
-                        Icon(
-                            painter = painterResource(R.drawable.filter_list),
-                            contentDescription = stringResource(R.string.filter)
-                        )
-                    }
-                    toggleableItem(
-                        onCheckedChange = {
-                            viewModel.updateDateQuery(showMonth = true)
-                            haptic.performHapticFeedback(HapticFeedbackType.ToggleOn)
-                        },
-                        label = dateParams.day.month.getName(java.time.format.TextStyle.FULL),
-                        checked = !dateParams.showMonth,
-                        weight = 3f
-                    )
-                    toggleableItem(
-                        onCheckedChange = {
-                            viewModel.updateDateQuery(showMonth = false)
-                            haptic.performHapticFeedback(HapticFeedbackType.ToggleOn)
-                        },
-                        label = dateParams.day.dayOfMonth.toString(),
-                        checked = dateParams.showMonth,
-                        weight = 1f
-                    )
-                }
-            }
-        }
-        if (listParam == ListParam.AppList) AppList(listContentPadding)
-        else HourList(listContentPadding)
-    }
-}
+        val listContentPadding = PaddingValues(sidePadding, 0.dp, sidePadding, paddingValues.calculateBottomPadding())
 
-@Composable
-private fun AppList(paddingValues: PaddingValues) {
-    val viewModel: HistoryVM = koinViewModel()
-    val context = LocalContext.current
-
-    val appList by remember { viewModel.appList }.collectAsStateWithLifecycle()
-    var appSelected by remember { mutableIntStateOf(-1) }
-    val totalMaximum = remember(appList) { appList.find { it.app.uidQuery == null }?.usage?.totalUsage ?: 0 }
-
-    val listState = rememberLazyListState()
-    LazyColumn(
-        modifier = Modifier
-            .padding(top = 8.dp)
-            .clip(shelfShape)
-            .background(colorScheme.surfaceContainer)
-            .fillMaxSize(),
-        contentPadding = paddingValues,
-        verticalArrangement = Arrangement.spacedBy(6.dp),
-        state = listState
-    ) {
-        items(appList, { it.app.uid }) { item ->
-            Box(Modifier.animateItem()) {
-                AppItem(
-                    app = item.app,
-                    usage1 = item.usage.usage1,
-                    usage2 = item.usage.usage2,
-                    name = item.app.getName(context),
-                    selected = item.app.uid == appSelected,
-                    maximum = totalMaximum,
-                    onClick = {appSelected = if (appSelected != item.app.uid) item.app.uid else -1}
-                ) {
-                    item.app.GetIcon(Modifier.size(imageWidth))
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun HourList(paddingValues: PaddingValues) {
-    val viewModel: HistoryVM = koinViewModel()
-    val context = LocalContext.current
-
-    val hourList by remember { viewModel.hourList }.collectAsStateWithLifecycle()
-    var hourSelected by remember { mutableIntStateOf(-1) }
-    val maximum by remember { derivedStateOf { hourList.sumOf { it.usage.totalUsage } } }
-    val textMeasurer = rememberTextMeasurer()
-    val font = remember { historyItemFont() }
-    val measurement = textMeasurer.measure(
-        text = LocalTime.MIDNIGHT.toLocaleHourString(context, true),
-        style = TextStyle(
-            fontFamily = font,
-            fontSize = MaterialTheme.typography.titleMedium.fontSize,
-        )
-    )
-    val listState = rememberLazyListState()
-    LazyColumn(
-        modifier = Modifier
-            .padding(top = 8.dp)
-            .clip(shelfShape)
-            .background(colorScheme.surfaceContainer)
-            .fillMaxSize(),
-        contentPadding = paddingValues,
-        verticalArrangement = Arrangement.spacedBy(6.dp),
-        state = listState
-    ) {
-        item {
-            Box(Modifier.animateItem()) {
-                val key = -10
-                AppItem(
-                    usage1 = hourList.sumOf { it.usage.usage1 },
-                    usage2 = hourList.sumOf { it.usage.usage2 },
-                    name = stringResource(R.string.total_usage),
-                    selected = key == hourSelected,
-                    maximum = maximum,
-                    onClick = {hourSelected = if (key != hourSelected) key else -1}
-                ) {
-                    Box (Modifier
-                        .width(measurement.size.width.toDp + 8.dp)
-                        .height(32.dp)) {
-                        Icon(
-                            modifier = Modifier.align(Alignment.Center),
-                            painter = painterResource(R.drawable.clock),
-                            contentDescription = stringResource(R.string.total_usage)
-                        )
-                    }
-                }
-            }
-        }
-        items(hourList, { it.start.hour }) { item ->
-            Box(Modifier.animateItem()) {
-                AppItem(
-                    usage1 = item.usage.usage1,
-                    usage2 = item.usage.usage2,
-                    name = item.toString(context),
-                    selected = item.start.hour == hourSelected,
-                    maximum = maximum,
-                    onClick = {hourSelected = if (item.start.hour != hourSelected) item.start.hour else -1}
-                ) {
-                    Box (Modifier
-                        .width(measurement.size.width.toDp + 8.dp)
-                        .height(32.dp)) {
-                        Text(
-                            modifier = Modifier.align(Alignment.Center),
-                            text = item.start.toLocalTime().toLocaleHourString(context, true),
-                            fontFamily = font,
-                            fontSize = MaterialTheme.typography.titleMedium.fontSize,
-                            textAlign = TextAlign.Center,
-                        )
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun HistoryLegendItem(
-    usageQuery1: UsageQuery,
-    backgroundColor: Color,
-    foregroundColor: Color,
-) {
-    Row(
-        modifier = Modifier
-            .background(backgroundColor, MaterialTheme.shapes.medium)
-            .padding(vertical = 4.dp, horizontal = 8.dp)
-    ) {
-        Icon(
-            painter = painterResource(usageQuery1.dataType.iconRes),
-            contentDescription = stringResource(usageQuery1.dataType.nameRes),
-            tint = foregroundColor
-        )
-        AnimatedVisibility(usageQuery1.dataType != DataType.None) {
-            Row {
-                Icon(
-                    painter = painterResource(usageQuery1.dataDirection.iconRes),
-                    contentDescription = stringResource(usageQuery1.dataDirection.nameRes),
-                    tint = foregroundColor
-                )
-                usageQuery1.dataUID.GetIcon(Modifier.size(24.dp), foregroundColor)
-            }
-        }
-    }
-}
-
-@OptIn(ExperimentalMaterial3ExpressiveApi::class, ExperimentalMaterial3Api::class)
-@Composable
-fun HistoryFilter(onDismiss: () -> Unit) {
-    val haptic = LocalHapticFeedback.current
-    val context = LocalContext.current
-    val viewModel: HistoryVM = koinViewModel()
-
-    val usageQueries by viewModel.queryFlow.collectAsStateWithLifecycle()
-    val listParam by viewModel.listParamFlow.collectAsStateWithLifecycle()
-    val filtersChanged by viewModel.filtersChanged.collectAsStateWithLifecycle()
-    val font = remember { googleSans(weight = 600f) }
-
-    val sheetState = rememberBottomSheetState(
-        initialValue = SheetValue.Hidden,
-        enabledValues = setOf(SheetValue.Hidden, SheetValue.Expanded)
-    )
-    ModalBottomSheet (
-        onDismissRequest = onDismiss,
-        sheetState = sheetState,
-    ) {
-        Column(modifier = Modifier.systemBarsPadding()) {
-            Column(modifier = Modifier.padding(horizontal = 16.dp)) {
-                Text(
-                    text = stringResource(R.string.filter),
-                    style = MaterialTheme.typography.headlineSmallEmphasized,
-                    fontFamily = font
-                )
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    HistoryItemSettings(
-                        stringResource(R.string.primary),
-                        1,
-                        usageQueries.first
-                    )
-                    HistoryItemSettings(
-                        stringResource(R.string.secondary),
-                        2,
-                        usageQueries.second
-                    )
-                }
-                HorizontalDivider(Modifier.padding(vertical = 8.dp))
-                Text(
-                    text = stringResource(R.string.list),
-                    style = MaterialTheme.typography.headlineSmallEmphasized,
-                    fontFamily = font
-                )
-                val forceHourList by viewModel.forceHourList.collectAsStateWithLifecycle()
-                ButtonGroup(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(
-                        4.dp,
-                        Alignment.CenterHorizontally
-                    ),
-                    expandedRatio = 0.05f,
-                    overflowIndicator = {}
-                ) {
-                    toggleableItem(
-                        onCheckedChange = {
-                            viewModel.updateListQuery(ListParam.AppList)
-                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                        },
-                        label = ListParam.AppList.getString(context),
-                        icon = { Icon(painterResource(R.drawable.apps), null) },
-                        enabled = !forceHourList,
-                        checked = listParam == ListParam.AppList,
-                        weight = 1f
-                    )
-                    toggleableItem(
-                        onCheckedChange = {
-                            viewModel.updateListQuery(ListParam.HourList)
-                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                        },
-                        label = ListParam.HourList.getString(context),
-                        icon = { Icon(painterResource(R.drawable.clock_analog), null) },
-                        checked = listParam == ListParam.HourList,
-                        weight = 1f
-                    )
-                }
-                HorizontalDivider(Modifier.padding(vertical = 8.dp))
-            }
-            Row(
+        Column(modifier = Modifier.padding(top = paddingValues.calculateTopPadding())) {
+            // Network and Period each get their own row with breathing room, rather than
+            // competing for space in one cramped line - Sort stays a compact icon
+            // action in the top bar above.
+            Column(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState(Int.MAX_VALUE))
-                    .padding(bottom = 16.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
+                    .padding(horizontal = sidePadding)
+                    .padding(bottom = Spacing.sm),
+                verticalArrangement = Arrangement.spacedBy(Spacing.md)
             ) {
-                val contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp)
-                Spacer(Modifier.width(8.dp))
-                Button (
-                    onClick = {
-                        viewModel.resetFilters()
-                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                    },
-                    enabled = filtersChanged,
-                    contentPadding = contentPadding,
-                    colors = ButtonDefaults.filledTonalButtonColors()
+                FilterSection(label = stringResource(R.string.network)) {
+                    NetworkToggle(network, viewModel::setNetwork)
+                }
+                FilterSection(label = stringResource(R.string.period)) {
+                    PeriodToggle(grouping, viewModel::setGrouping)
+                }
+            }
+
+            if (rows.all { it.totals.total == 0L }) {
+                Box(
+                    modifier = Modifier.fillMaxWidth().padding(vertical = Spacing.xxl),
+                    contentAlignment = Alignment.Center
                 ) {
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(4.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(painterResource(R.drawable.reset_wrench), null)
-                        Text(stringResource(R.string.reset))
+                    Text(
+                        text = stringResource(R.string.no_usage_detected),
+                        color = colorScheme.onSurface.copy(alpha = 0.6f)
+                    )
+                }
+            } else {
+                UsageTableHeader(
+                    leadingLabel = stringResource(R.string.date),
+                    modifier = Modifier.padding(horizontal = sidePadding)
+                )
+                HorizontalDivider(color = colorScheme.onSurface.copy(alpha = 0.08f))
+                val listState = rememberLazyListState()
+                LaunchedEffect(listState) {
+                    snapshotFlow { listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index }
+                        .distinctUntilChanged()
+                        .collect { lastVisibleIndex ->
+                            if (lastVisibleIndex != null) viewModel.loadMoreIfNeeded(lastVisibleIndex)
+                        }
+                }
+                LazyColumn(state = listState, contentPadding = listContentPadding) {
+                    items(rows, key = { it.start.toEpochDay() }) { row ->
+                        val expanded = expandedRow == row.start
+                        HistoryRow(
+                            row = row,
+                            grouping = grouping,
+                            network = network,
+                            expanded = expanded,
+                            hourly = if (expanded && grouping == HistoryGrouping.Day) hourly else emptyList(),
+                            // Guarded against the row start too, not just "is expanded": while
+                            // a new month's data is still loading, the VM's last-known overview
+                            // may briefly still describe a different, previously-expanded month -
+                            // never present stale data as current.
+                            monthlyOverview = monthlyOverview?.takeIf {
+                                expanded && grouping == HistoryGrouping.Month && it.monthRow.start == row.start
+                            },
+                            onClick = {
+                                if (grouping == HistoryGrouping.Day || grouping == HistoryGrouping.Month) {
+                                    viewModel.toggleExpanded(row.start)
+                                }
+                            }
+                        )
                     }
                 }
-                Button (
-                    onClick = {
-                        viewModel.persistFilters()
-                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+            }
+        }
+    }
+}
+
+@Composable
+private fun SortMenu(current: PeriodSort, onSelect: (PeriodSort) -> Unit) {
+    var expanded by remember { mutableStateOf(false) }
+    Box {
+        IconButton(onClick = { expanded = true }) {
+            Icon(painterResource(R.drawable.filter_list), contentDescription = stringResource(R.string.filter))
+        }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            PeriodSort.entries.forEach { sort ->
+                DropdownMenuItem(
+                    text = { Text(stringResource(sort.nameRes)) },
+                    trailingIcon = {
+                        if (sort == current) {
+                            Icon(painterResource(R.drawable.checkmark), contentDescription = null)
+                        }
                     },
-                    enabled = filtersChanged,
-                    contentPadding = contentPadding,
-                    colors = ButtonDefaults.filledTonalButtonColors()
-                ) {
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(4.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(painterResource(R.drawable.archive), null)
-                        Text(stringResource(R.string.set_as_default))
-                    }
-                }
-                Button(
-                    onClick = {
-                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                        onDismiss()
-                    },
-                    contentPadding = contentPadding
-                ) {
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(4.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(painterResource(R.drawable.close), null)
-                        Text(stringResource(R.string.close))
-                    }
-                }
-                Spacer(Modifier.width(8.dp))
+                    onClick = { onSelect(sort); expanded = false }
+                )
             }
         }
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+/**
+ * One period's row: label plus aligned Download/Upload/Total columns (see [UsageTableRow]).
+ * Day rows expand inline into an hourly breakdown; Month rows expand into
+ * [MonthlyOverviewContent] instead.
+ */
 @Composable
-fun RowScope.HistoryItemSettings(
-    title: String,
-    n: Int,
-    query: UsageQuery
+private fun HistoryRow(
+    row: PeriodRow,
+    grouping: HistoryGrouping,
+    network: DataType,
+    expanded: Boolean,
+    hourly: List<HourUsage>,
+    monthlyOverview: MonthlyOverview?,
+    onClick: () -> Unit,
 ) {
-    val hapticFeedback = LocalHapticFeedback.current
-    val context = LocalContext.current
-    val viewModel: HistoryVM = koinViewModel()
-    val appManager: AppManager = koinInject()
-    val scope = rememberCoroutineScope()
-
-    Column (modifier = Modifier.weight(1f)) {
-        Text(
-            text = title,
-            style = MaterialTheme.typography.titleSmall,
-            color = if (n == 1) colorScheme.primary else colorScheme.tertiary,
-        )
-        FilterDropdownButton(
-            n = n,
-            enabled = true,
-            onSelect = {
-                viewModel.updateQuery(n, query.copy(dataType = it))
-                hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
-            },
-            text = stringResource(query.dataType.nameRes),
-            items = DataType.entries
-        ) {
-            Icon(painterResource(query.dataType.iconRes), null)
-        }
-        FilterDropdownButton(
-            n = n,
-            enabled = query.dataType != DataType.None,
-            onSelect = {
-                viewModel.updateQuery(n, query.copy(dataDirection = it))
-                hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
-            },
-            text = stringResource(query.dataDirection.nameRes),
-            items = DataDirection.entries
-        ) {
-            Icon(painterResource(query.dataDirection.iconRes), null)
-        }
-
-        var showAppPicker by remember { mutableStateOf(false) }
-        FilterButton(
-            n = n,
-            enabled = query.dataType != DataType.None,
-            onClick = {
-                showAppPicker = true
-                hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
-            },
-            text = query.dataUID.getName(context)
-        ) {
-            query.dataUID.GetIcon(Modifier.size(24.dp))
-        }
-
-        if (showAppPicker) {
-            AppSearchDialog (
-                onSelect = { uid ->
-                    scope.launch {
-                        viewModel.updateQuery(n, query.copy(dataUID = appManager.getAppForUID(uid)))
-                        hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
-                    }
-                }
-            ){
-                showAppPicker = false
-            }
-        }
+    val today = remember { LocalDate.now() }
+    val label = when {
+        grouping == HistoryGrouping.Day && row.start == today -> stringResource(R.string.today)
+        grouping == HistoryGrouping.Day && row.start == today.minusDays(1) -> stringResource(R.string.yesterday)
+        else -> grouping.rawLabel(row.start)
     }
-}
+    val accentColor = if (network == DataType.Wifi) colorScheme.tertiary else colorScheme.primary
+    val expandable = grouping == HistoryGrouping.Day || grouping == HistoryGrouping.Month
 
-@Composable
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
-private fun AppSearchDialog(onSelect: (uid: Int) -> Unit, onDismiss: () -> Unit) {
-    val sheetState = rememberBottomSheetState(SheetValue.Hidden)
-    ModalBottomSheet (
-        onDismissRequest = onDismiss,
-        sheetState = sheetState,
-    ) {
-        val appManager: AppManager = koinInject()
-        val textFieldState = rememberTextFieldState()
-        val focusRequester = remember { FocusRequester() }
-        val keyboardState by rememberUpdatedState(WindowInsets.isImeVisible)
-        var searchFocused by remember { mutableStateOf(false) }
-        val scope = rememberCoroutineScope()
-        val context = LocalContext.current
-
-        LaunchedEffect(Unit) {
-            focusRequester.requestFocus()
-        }
-
-        LaunchedEffect(keyboardState) {
-            if (!keyboardState && searchFocused) {
-                scope.launch { sheetState.hide() }.invokeOnCompletion {
-                    if (!sheetState.isVisible) onDismiss()
-                }
-            }
-            else if (keyboardState) {
-                searchFocused = true
-            }
-        }
-
-        val includedApps by produceState(emptyList()) { value = listOf(allApp, tetheringApp, removedApp).plus(appManager.getAllApps()) }
-        val searchResults by produceState(initialValue = includedApps, textFieldState.text) {
-            value = includedApps.search(textFieldState.text.toString(), context)
-        }
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(bottom = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
+    Column {
+        UsageTableRow(
+            download = row.totals.download,
+            upload = row.totals.upload,
+            total = row.totals.total,
+            totalColor = accentColor,
+            modifier = Modifier.clickable(enabled = expandable, onClick = onClick),
         ) {
-            AppSelector(searchResults, Modifier.fillMaxWidth()) { uid -> onSelect(uid) }
-            SearchField(textFieldState)
+            Text(
+                text = label,
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.Medium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
         }
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun FilterButton(
-    n: Int,
-    enabled: Boolean,
-    onClick: (() -> Unit),
-    text: String,
-    icon: @Composable (() -> Unit)
-) {
-    val state = rememberTooltipState()
-    TooltipBox(
-        modifier = Modifier.fillMaxWidth(),
-        positionProvider = TooltipDefaults.rememberTooltipPositionProvider(
-            TooltipAnchorPosition.Above,
-            4.dp
-        ),
-        tooltip = { PlainTooltip { Text(text) } },
-        state = state
-    ) {
-        Button(
-            modifier = Modifier.fillMaxWidth(),
-            enabled = enabled,
-            shape = MaterialTheme.shapes.small,
-            colors = ButtonDefaults.buttonColors(
-                containerColor = if (n == 1) colorScheme.primary else colorScheme.tertiary,
-                contentColor = if (n == 1) colorScheme.onPrimary else colorScheme.onTertiary
-            ),
-            contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp),
-            onClick = onClick
-        ) {
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                icon()
-                Text(text, maxLines = 1, softWrap = false)
-            }
-        }
-    }
-}
-
-@Composable
-private fun <T : DropdownItem> FilterDropdownButton(
-    n: Int,
-    enabled: Boolean,
-    onSelect: (item: T) -> Unit,
-    items: List<T>,
-    text: String,
-    icon: @Composable (() -> Unit)
-) {
-    val scrollState = rememberScrollState()
-    var expanded by remember { mutableStateOf(false)}
-    Box(modifier = Modifier
-        .fillMaxWidth()
-        .wrapContentSize(Alignment.TopStart)) {
-        FilterButton(
-            n = n,
-            enabled = enabled,
-            onClick = {expanded = true},
-            text = text,
-            icon = icon
-        )
-        DropdownMenu(
-            expanded = expanded,
-            onDismissRequest = { expanded = false },
-            shape = MaterialTheme.shapes.medium,
-            scrollState = scrollState,
-        ) {
-            items.forEach {
-                it.DropdownMenuItem { onSelect(it) }
-            }
-        }
-    }
-}
-
-@Composable
-fun AppItem(
-    modifier: Modifier = Modifier,
-    app: DataUID? = null,
-    usage1: Long,
-    usage2: Long,
-    name: String,
-    selected: Boolean,
-    maximum: Long,
-    onClick: () -> Unit = {},
-    icon: @Composable (() -> Unit)
-) {
-    val haptic = LocalHapticFeedback.current
-    val activity = LocalActivity.current
-    val viewModel: HistoryVM = koinViewModel()
-    val appManager: AppManager = koinInject()
-    val usageQueries by viewModel.queryFlow.collectAsStateWithLifecycle()
-    val scope = rememberCoroutineScope()
-
-    Column(
-        modifier = modifier
-            .clip(MaterialTheme.shapes.small)
-            .background(colorScheme.surface)
-            .clickable {
-                onClick()
-                haptic.performHapticFeedback(HapticFeedbackType.ContextClick)
-            }
-    ) {
-        Row(
-            modifier = Modifier.padding(4.dp),
-            verticalAlignment = Alignment.Top,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            icon()
-            Column {
-                CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
-                    AnimatedVisibility(
-                        visible = selected,
-                        enter = expandVertically(spring(0.7f, Spring.StiffnessMedium)),
-                        exit = shrinkVertically(spring(0.7f, Spring.StiffnessMedium))
-                    ) {
-                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            Row(
-                                modifier = Modifier.heightIn(min = 32.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text(
-                                    text = name,
-                                    fontWeight = FontWeight.Bold,
+        AnimatedVisibility(visible = expanded, enter = expandVertically(), exit = shrinkVertically()) {
+            Box(modifier = Modifier.card().padding(6.dp).padding(bottom = Spacing.sm)) {
+                if (grouping == HistoryGrouping.Day) {
+                    if (hourly.isNotEmpty()) {
+                        val context = LocalContext.current
+                        val barData = remember(hourly) {
+                            hourly.map {
+                                BarData(
+                                    x = it.start.toLocalTime().toLocaleHourString(context, short = true),
+                                    y1 = it.usage.usage1,
+                                    y2 = 0L
                                 )
                             }
-                            LineGraphHeader()
                         }
+                        BarGraph(barData)
                     }
-                }
-                val graphUsage1 = if (usageQueries.first.dataType != DataType.None) usage1 else null
-                val graphUsage2 = if (usageQueries.second.dataType != DataType.None) usage2 else null
-                LineGraph(
-                    maximum = maximum,
-                    data = Pair(graphUsage1, graphUsage2)
-                )
-                AnimatedVisibility(
-                    visible = selected && app != null && app != allApp,
-                    enter = expandVertically(spring(0.7f, Spring.StiffnessMedium)),
-                    exit = shrinkVertically(spring(0.7f, Spring.StiffnessMedium))
-                ) {
-                    Column(modifier.padding(top = 6.dp)) {
-                        Row (
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.End
+                } else if (grouping == HistoryGrouping.Month) {
+                    if (monthlyOverview != null) {
+                        MonthlyOverviewContent(overview = monthlyOverview, accentColor = accentColor)
+                    } else {
+                        Box(
+                            modifier = Modifier.fillMaxWidth().padding(Spacing.xl),
+                            contentAlignment = Alignment.Center
                         ) {
-                            Button(
-                                modifier = Modifier.padding(end = 4.dp),
-                                shape = MaterialTheme.shapes.large,
-                                onClick = {
-                                    scope.launch {
-                                        app?.uid?.let {
-                                            viewModel.updateQuery(1, usageQueries.first.copy(dataUID = appManager.getAppForUID(it)))
-                                            viewModel.updateQuery(2, usageQueries.second.copy(dataUID = appManager.getAppForUID(it)))
-                                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                        }
-                                    }
-                                }
-                            ) {
-                                Row(
-                                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Icon(painterResource(R.drawable.custom), null)
-                                    Text(stringResource(R.string.quick_filter))
-                                }
-                            }
-                            if (app is DataUIDApp) {
-                                val app by produceState<DataUID>(allApp) { value = appManager.getAppForUID(app.uid) }
-                                val launchIntent by remember { derivedStateOf {
-                                    activity?.packageManager?.getLaunchIntentForPackage(app.packageName)
-                                } }
-                                FilledIconButton(
-                                    enabled = launchIntent != null,
-                                    onClick = {
-                                        viewModel.openApp(activity, launchIntent)
-                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                    }
-                                ) {
-                                    Icon(
-                                        painterResource(R.drawable.open_in_new),
-                                        stringResource(R.string.open_app)
-                                    )
-                                }
-                                FilledIconButton(
-                                    onClick = {
-                                        scope.launch {
-                                            viewModel.openPackageSettings(activity, app.uid)
-                                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                        }
-                                    }
-                                ) {
-                                    Icon(
-                                        painterResource(R.drawable.settings),
-                                        stringResource(R.string.settings)
-                                    )
-                                }
-                            } else if (app == otherUsersApp) {
-                                Button(
-                                    modifier = Modifier.padding(horizontal = 4.dp),
-                                    shape = MaterialTheme.shapes.large,
-                                    onClick = { openLink(activity, "https://github.com/leekleak/traffic-light/wiki/Troubleshooting#network-usage") },
-                                ) {
-                                    Row(
-                                        horizontalArrangement = Arrangement.spacedBy(4.dp),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Icon(painterResource(R.drawable.help), null)
-                                        Text(stringResource(R.string.help))
-                                    }
-                                }
-                            }
+                            CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp, color = accentColor)
                         }
                     }
                 }
             }
+        }
+        HorizontalDivider(color = colorScheme.onSurface.copy(alpha = 0.08f))
+    }
+}
+
+/**
+ * The Month analytical overview: change vs the previous month, a
+ * download/upload breakdown, a within-month weekly split, and the month's top apps. This is
+ * what makes selecting Month more than "the same list with bigger buckets".
+ */
+@Composable
+private fun MonthlyOverviewContent(overview: MonthlyOverview, accentColor: Color) {
+    Column(modifier = Modifier.padding(horizontal = Spacing.sm, vertical = Spacing.sm)) {
+        overview.previousMonthTotal?.let { previous ->
+            val currentTotal = overview.monthRow.totals.total
+            val changePercent = (((currentTotal - previous).toDouble() / previous.toDouble()) * 100.0).roundToInt()
+            Text(
+                text = when {
+                    changePercent > 0 -> stringResource(R.string.vs_last_month_increase, changePercent)
+                    changePercent < 0 -> stringResource(R.string.vs_last_month_decrease, -changePercent)
+                    else -> stringResource(R.string.vs_last_month_flat)
+                },
+                style = MaterialTheme.typography.labelMedium,
+                color = colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.height(Spacing.md))
+        }
+
+        CategoryTitleSmallText(stringResource(R.string.usage_breakdown))
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = Spacing.sm),
+            horizontalArrangement = Arrangement.spacedBy(Spacing.xxl)
+        ) {
+            BreakdownItem(stringResource(R.string.download), overview.monthRow.totals.download)
+            BreakdownItem(stringResource(R.string.upload), overview.monthRow.totals.upload)
+        }
+        Spacer(Modifier.height(Spacing.md))
+
+        if (overview.weeklyRows.size > 1) {
+            CategoryTitleSmallText(stringResource(R.string.weekly_usage))
+            val barData = remember(overview.weeklyRows) {
+                overview.weeklyRows.mapIndexed { index, week ->
+                    BarData(x = "W${index + 1}", y1 = week.totals.total, y2 = 0L)
+                }
+            }
+            BarGraph(barData)
+            Spacer(Modifier.height(Spacing.md))
+        }
+
+        if (overview.topApps.isNotEmpty()) {
+            CategoryTitleSmallText(stringResource(R.string.top_apps))
+            RankedAppList(
+                apps = overview.topApps,
+                accentColor = accentColor,
+                modifier = Modifier.padding(horizontal = Spacing.sm),
+                maxEntries = 5,
+                showShare = true,
+                // The device-level month total, not the sum of topApps - some traffic is
+                // never attributed to any single app, so this keeps the shown percentages
+                // honest instead of quietly implying app usage adds up to 100%.
+                totalOverride = overview.monthRow.totals.total,
+            )
         }
     }
 }
 
 @Composable
-fun LineGraphHeader() {
-    val context = LocalContext.current
-    val viewModel: HistoryVM = koinViewModel()
-    val usageQueries by viewModel.queryFlow.collectAsStateWithLifecycle()
-
-    Column (Modifier.fillMaxWidth()) {
-        Row {
-            if (usageQueries.first.dataType != DataType.None) {
-                Text(
-                    modifier = Modifier.weight(1f),
-                    text = usageQueries.first.toString(context),
-                    style = MaterialTheme.typography.titleMedium,
-                    color = colorScheme.tertiary
-                )
-            }
-            if (usageQueries.second.dataType != DataType.None) {
-                Text(
-                    modifier = Modifier.weight(1f),
-                    text = usageQueries.second.toString(context),
-                    textAlign = TextAlign.End,
-                    style = MaterialTheme.typography.titleMedium,
-                    color = colorScheme.tertiary
-                )
-            }
-        }
+private fun BreakdownItem(label: String, value: Long) {
+    Column {
+        Text(text = label, style = MaterialTheme.typography.labelSmall, color = colorScheme.onSurfaceVariant)
+        Text(text = DataSize(value).formatted(), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
     }
 }

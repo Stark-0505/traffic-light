@@ -4,7 +4,7 @@
 Traffic Light is an open-source tool for tracking your network usage while ensuring total privacy. Inspired by Internet Speed Meter and GlassWire.
 
 ## Features
-- Data plan tracking (including multiple SIMs)
+- Separate Mobile Data & Wi-Fi tracking
 - Beautiful widgets
 - Status bar network indicator
 - In-depth historical data tracking
@@ -32,11 +32,6 @@ Traffic Light is an open-source tool for tracking your network usage while ensur
     <td align="center">
       <a href="https://play.google.com/store/apps/details?id=com.leekleak.trafficlight"><img alt="Play Store" height="80" src="branding/badge_playstore.png"></a>
     </td>
-  </tr>
-  <tr>
-    <td align="center">All features</td>
-    <td align="center">No Shizuku (multi-SIM support)</td>
-  </tr>
   </tr>
 </table>
 
@@ -67,6 +62,5 @@ Translation can be done on [Weblate](https://hosted.weblate.org/engage/traffic-l
 Check out the [wiki](https://github.com/leekleak/traffic-light/wiki) as the info you're looking may be there.
 Popular pages:
 - [Troubleshooting](https://github.com/leekleak/traffic-light/wiki/Troubleshooting)
-- [Setting up Shizuku for multi-SIM tracking](https://github.com/leekleak/traffic-light/wiki/Setting-up-Shizuku-for-multi%E2%80%90SIM-tracking)
 - [Hiding status bar icon when disconnected](https://github.com/leekleak/traffic-light/wiki/Hide-status-bar-icon-when-disconnected)
 

@@ -28,8 +28,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
@@ -42,8 +40,10 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.toPath
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableState
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -79,20 +79,31 @@ import com.leekleak.trafficlight.util.px
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
+/**
+ * Whether the current preference row is inside a [SettingsGroup]. Grouped rows skip their own
+ * individual card background/shape - the group already provides one shared surface - so a
+ * settings section reads as one coherent block instead of a stack of separate cards.
+ */
+val LocalGroupedPreference = compositionLocalOf { false }
+
+/**
+ * Wraps a set of related preference rows in a single card surface with a hairline divider
+ * between each row, instead of every row being its own separate card.
+ */
 @Composable
-fun NotificationWarningDialog(
-    onDismiss: () -> Unit,
+fun SettingsGroup(
+    modifier: Modifier = Modifier,
+    content: @Composable ColumnScope.() -> Unit,
 ) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(stringResource(R.string.notification_aggregation_warning_title)) },
-        text = { Text(stringResource(R.string.notification_aggregation_warning_text)) },
-        confirmButton = {
-            Button(onClick = onDismiss) {
-                Text(stringResource(R.string.close))
-            }
-        }
-    )
+    CompositionLocalProvider(LocalGroupedPreference provides true) {
+        Column(
+            modifier = modifier
+                .fillMaxWidth()
+                .padding(vertical = 4.dp)
+                .card(),
+            content = content
+        )
+    }
 }
 
 @Composable
@@ -105,12 +116,13 @@ fun Preference(
     controls: @Composable (() -> Unit)? = null,
     enabled: Boolean = true,
 ) {
+    val grouped = LocalGroupedPreference.current
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = modifier
             .fillMaxWidth()
-            .padding(vertical = 4.dp)
-            .card()
+            .padding(vertical = if (grouped) 2.dp else 4.dp)
+            .let { if (grouped) it else it.card() }
             .clickable(enabled = enabled, onClick = onClick)
             .padding(
                 start = if (icon != null) 8.dp else 16.dp,
@@ -205,10 +217,11 @@ fun NavigatePreferenceIcon(
     enabled: Boolean = true,
 ) {
     val haptic = LocalHapticFeedback.current
+    val grouped = LocalGroupedPreference.current
     Box(
         modifier = modifier
-            .padding(vertical = 4.dp)
-            .card()
+            .padding(vertical = if (grouped) 2.dp else 4.dp)
+            .let { if (grouped) it else it.card() }
             .clickable(enabled = enabled, onClick = {
                 onClick()
                 haptic.performHapticFeedback(HapticFeedbackType.ContextClick)

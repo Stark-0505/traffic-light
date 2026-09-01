@@ -1,7 +1,6 @@
 package com.leekleak.trafficlight.ui.navigation
 
 import androidx.navigation3.runtime.NavKey
-import com.leekleak.trafficlight.database.DataPlan
 import kotlinx.serialization.Serializable
 
 /**
@@ -12,10 +11,10 @@ import kotlinx.serialization.Serializable
 data object OverviewKey : NavKey
 
 @Serializable
-data object DataPlansKey : NavKey
+data object HistoryKey : NavKey
 
 @Serializable
-data object HistoryKey : NavKey
+data object AppsKey : NavKey
 
 @Serializable
 data object SettingsKey : NavKey
@@ -23,10 +22,11 @@ data object SettingsKey : NavKey
 @Serializable
 data object UsagePermissionRequestKey : NavKey
 
-val mainScreens = listOf(OverviewKey, DataPlansKey, HistoryKey)
+val mainScreens = listOf(OverviewKey, HistoryKey, AppsKey)
 
+/** Per-app usage detail, opened from the Apps screen. */
 @Serializable
-data class PlanConfigKey(val dataPlan: DataPlan) : NavKey
+data class AppDetailKey(val uid: Int) : NavKey
 
 /**
  * Settings

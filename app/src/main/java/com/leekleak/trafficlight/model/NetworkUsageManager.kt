@@ -3,7 +3,6 @@ package com.leekleak.trafficlight.model
 import android.app.usage.NetworkStats
 import android.app.usage.NetworkStatsManager
 import com.leekleak.trafficlight.charts.model.BarData
-import com.leekleak.trafficlight.charts.model.ScrollableBarData
 import com.leekleak.trafficlight.database.AppUsage
 import com.leekleak.trafficlight.database.DataDirection
 import com.leekleak.trafficlight.database.DataDirection.Bidirectional
@@ -11,23 +10,25 @@ import com.leekleak.trafficlight.database.DataDirection.Download
 import com.leekleak.trafficlight.database.DataDirection.Upload
 import com.leekleak.trafficlight.database.DataType
 import com.leekleak.trafficlight.database.DayUsage
+import com.leekleak.trafficlight.database.HistoryGrouping
 import com.leekleak.trafficlight.database.HourUsage
+import com.leekleak.trafficlight.database.PeriodRow
+import com.leekleak.trafficlight.database.PeriodTotals
 import com.leekleak.trafficlight.database.UsageQuery
 import com.leekleak.trafficlight.model.AppManager.Companion.allApp
 import com.leekleak.trafficlight.model.AppManager.Companion.otherUsersApp
 import com.leekleak.trafficlight.model.AppManager.Companion.specialUIDs
-import com.leekleak.trafficlight.model.AppManager.Companion.unknownApp
 import com.leekleak.trafficlight.ui.history.DateParams
+import com.leekleak.trafficlight.util.endOfWeekExclusive
 import com.leekleak.trafficlight.util.fromTimestamp
 import com.leekleak.trafficlight.util.getName
 import com.leekleak.trafficlight.util.overlapRatio
+import com.leekleak.trafficlight.util.startOfWeek
 import com.leekleak.trafficlight.util.toTimestamp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.withContext
 import timber.log.Timber
 import java.time.LocalDate
@@ -190,9 +191,16 @@ class NetworkUsageManager(
 
         val uids = usage1.map { it.uid }.union(usage2.map { it.uid }).union(specialUIDs).filterNotNull()
 
+        // getNetworkDataForType() already merges bucket rows down to one UsageData per uid,
+        // so indexing both lists once here (O(n)) and looking up by key inside the loop
+        // below replaces what would otherwise be an O(n²) linear .find() per uid across
+        // every installed app that has any usage.
+        val usage1ByUid = usage1.associateBy { it.uid }
+        val usage2ByUid = usage2.associateBy { it.uid }
+
         val list = uids.map { uid ->
-            val uid1 = usage1.find { it.uid == uid } ?: UsageData()
-            val uid2 = usage2.find { it.uid == uid } ?: UsageData()
+            val uid1 = usage1ByUid[uid] ?: UsageData()
+            val uid2 = usage2ByUid[uid] ?: UsageData()
             AppUsage(
                 app = appManager.getAppForUID(uid),
                 usage = DayUsage(
@@ -212,7 +220,6 @@ class NetworkUsageManager(
             app = allApp,
             usage = totalUsage
         ))
-        list.sortWith(compareBy { it.app == unknownApp })
         list.removeAll { it.usage.totalUsage == 0L }
         return list.distinctBy { it.app.uid }.toList()
     }
@@ -267,35 +274,6 @@ class NetworkUsageManager(
         return result
     }
 
-    fun daysUsage(
-        startDate: LocalDate,
-        endDate: LocalDate,
-        usageQuery1: UsageQuery?,
-        usageQuery2: UsageQuery? = null
-    ): Flow<List<ScrollableBarData>> = flow {
-        val data: MutableList<ScrollableBarData> = mutableListOf()
-        val range = startDate.toEpochDay() until endDate.toEpochDay()
-
-        for (i in range) {
-            val now = LocalDate.ofEpochDay(i)
-            data.add(ScrollableBarData(now))
-        }
-        coroutineScope {
-            data.indices.map { i ->
-                async(Dispatchers.IO) {
-                    val now = LocalDate.ofEpochDay(i + startDate.toEpochDay())
-                    val usage1 = usageQuery1?.let { totalDayUsage(it, now) }
-                    val usage2 = usageQuery2?.let { totalDayUsage(it, now) }
-                    data[i] = data[i].copy(
-                        y1 = usage1 ?: 0L,
-                        y2 = usage2 ?: 0L,
-                    )
-                }
-            }.awaitAll()
-        }
-        emit(data.toList())
-    }
-
     suspend fun getWeekUsage(subscriberId: String?, dataType: DataType = DataType.Mobile): List<BarData> {
         val field = WeekFields.of(Locale.getDefault())
         val firstDay = field.firstDayOfWeek
@@ -309,9 +287,11 @@ class NetworkUsageManager(
         coroutineScope {
             (0..daysPassed).map { i ->
                 async {
-                    val now = now.minusDays(daysPassed.toLong() - i)
+                    val day = now.minusDays(daysPassed.toLong() - i)
                     val isWifi = dataType == DataType.Wifi
-                    val usage = totalDayUsage(UsageQuery(dataType), now, subscriberId)
+                    // Same total-only case periodTotals() exists for: no per-app
+                    // breakdown is used here, just each day's aggregate.
+                    val usage = periodTotals(dataType, day, day.plusDays(1), subscriberId).total
                     data[i] = data[i].copy(y1 = if (isWifi) 0 else usage, y2 = if (isWifi) usage else 0)
                 }
             }.awaitAll()
@@ -322,4 +302,118 @@ class NetworkUsageManager(
     suspend fun queryDetails(queryIndex: Int, subscriberId: String?, startStamp: Long, endStamp: Long): NetworkStats = withContext(Dispatchers.IO) {
         networkStatsManager.queryDetails(queryIndex, subscriberId, startStamp, endStamp)
     }
+
+    /**
+     * Download/upload totals for one network type over an arbitrary `[startDate, endDate)`
+     * range, aggregated device-side by [NetworkStatsManager] in a single
+     * [querySummaryForDevice] call - this is the primitive every History/Apps grouping
+     * (Day/Week/Month) row is built from.
+     *
+     * This intentionally does NOT go through [getNetworkDataForType]: that also runs a
+     * per-UID [NetworkStatsManager.querySummary] and reconciles it against the device
+     * total to attribute a UID to "other users'" usage - work that only matters when the
+     * caller needs a per-app breakdown. A pure total is already exactly what
+     * [querySummaryForDevice] reports (per-UID reconciliation exists specifically to make
+     * the per-UID sum match this device total, not the other way around), so callers that
+     * only want the total - every History/Apps period row - skip straight to it.
+     */
+    suspend fun periodTotals(
+        dataType: DataType,
+        startDate: LocalDate,
+        endDate: LocalDate,
+        subscriberId: String? = null,
+    ): PeriodTotals = withContext(Dispatchers.IO) {
+        val queryIndex = dataType.queryIndex ?: return@withContext PeriodTotals()
+        val startStamp = startDate.toTimestamp()
+        val endStamp = endDate.toTimestamp()
+        try {
+            val deviceTotal = networkStatsManager.querySummaryForDevice(queryIndex, subscriberId, startStamp, endStamp)
+            PeriodTotals(download = deviceTotal.rxBytes, upload = deviceTotal.txBytes)
+        } catch (e: SecurityException) {
+            Timber.e(e)
+            PeriodTotals()
+        }
+    }
+
+    /**
+     * A row per Day/Week/Month period going back from [anchor], each with its own
+     * device-aggregated totals fetched in parallel. [count] controls how many rows are
+     * produced (i.e. how far back History/Apps scrolls).
+     */
+    suspend fun periodSeries(
+        dataType: DataType,
+        grouping: HistoryGrouping,
+        anchor: LocalDate = LocalDate.now(),
+        count: Int = grouping.defaultRowCount,
+    ): List<PeriodRow> = coroutineScope {
+        (0 until count).map { i ->
+            async(Dispatchers.IO) {
+                val (start, endExclusive) = grouping.rangeGoingBack(anchor, i)
+                val totals = periodTotals(dataType, start, endExclusive)
+                PeriodRow(start = start, endExclusive = endExclusive, totals = totals)
+            }
+        }.awaitAll()
+    }
+
+    /**
+     * Same idea as [periodSeries] but scoped to a single app (or special UID) via
+     * [dataUID]. Download and Upload for that UID come from one [getNetworkDataForType]
+     * call - it already returns both directions per UID in a single pass - rather than
+     * two separate [totalDayUsage] calls (one per direction), each of which would run its
+     * own full per-UID query.
+     */
+    suspend fun appPeriodSeries(
+        dataType: DataType,
+        dataUID: DataUID,
+        grouping: HistoryGrouping,
+        anchor: LocalDate = LocalDate.now(),
+        count: Int = grouping.defaultRowCount,
+    ): List<AppPeriodRow> = coroutineScope {
+        (0 until count).map { i ->
+            async(Dispatchers.IO) {
+                val (start, endExclusive) = grouping.rangeGoingBack(anchor, i)
+                val usage = getNetworkDataForType(start.toTimestamp(), endExclusive.toTimestamp(), null, dataType)
+                val totals = if (dataUID.uidQuery == null) {
+                    // The "all apps" sentinel UID - total across every UID, same as periodTotals.
+                    PeriodTotals(download = usage.sumOf { it.download }, upload = usage.sumOf { it.upload })
+                } else {
+                    val uidUsage = usage.find { it.uid == dataUID.uid }
+                    PeriodTotals(download = uidUsage?.download ?: 0L, upload = uidUsage?.upload ?: 0L)
+                }
+                AppPeriodRow(start = start, endExclusive = endExclusive, totals = totals)
+            }
+        }.awaitAll()
+    }
+
+    /**
+     * Calendar weeks overlapping `[monthStart, monthEndExclusive)`, each clipped to stay
+     * inside the month - a week that spans a month boundary only counts the days that
+     * actually fall within this month, so the rows sum back to the month total. Powers
+     * History's Month analytical breakdown only; the app's one definition of "a week" stays
+     * [HistoryGrouping.Week] + [HistoryGrouping.rangeGoingBack], so this can never disagree
+     * with it about where a week starts.
+     */
+    suspend fun weeksInMonth(
+        dataType: DataType,
+        monthStart: LocalDate,
+        monthEndExclusive: LocalDate,
+    ): List<PeriodRow> = coroutineScope {
+        val weekStarts = generateSequence(monthStart.startOfWeek()) { it.plusWeeks(1) }
+            .takeWhile { it < monthEndExclusive }
+            .toList()
+        weekStarts.map { weekStart ->
+            async(Dispatchers.IO) {
+                val clippedStart = maxOf(weekStart, monthStart)
+                val clippedEnd = minOf(weekStart.endOfWeekExclusive(), monthEndExclusive)
+                val totals = periodTotals(dataType, clippedStart, clippedEnd)
+                PeriodRow(start = clippedStart, endExclusive = clippedEnd, totals = totals)
+            }
+        }.awaitAll()
+    }
 }
+
+data class AppPeriodRow(
+    val start: LocalDate,
+    val endExclusive: LocalDate,
+    val totals: PeriodTotals,
+)

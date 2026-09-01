@@ -1,6 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">Traffic Light</string>
     <string name="today">Dnes</string>
     <string name="this_week">Tento týden</string>
     <string name="history">Historie</string>

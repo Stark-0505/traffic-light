@@ -9,7 +9,4 @@ val integrationsModule = module {
             override suspend fun onAppLaunch(activity: Activity) = Unit
         }
     }
-    single<ShizukuServicesProvider> {
-        ShizukuServicesProviderImpl(get(), get(), get(), get())
-    }
 }

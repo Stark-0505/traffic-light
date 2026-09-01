@@ -1,30 +1,14 @@
 package com.leekleak.trafficlight.database
 
-import androidx.room3.Room
-import com.leekleak.trafficlight.database.migrations.MIGRATION_1_2
-import com.leekleak.trafficlight.database.migrations.MIGRATION_2_3
-import com.leekleak.trafficlight.database.migrations.MIGRATION_3_4
-import org.koin.android.ext.koin.androidContext
 import org.koin.dsl.module
 
-
+/**
+ * No local database: every screen reads live/historical usage straight from Android's
+ * [android.app.usage.NetworkStatsManager] via [NetworkUsageManager][com.leekleak.trafficlight.model.NetworkUsageManager].
+ * The only persisted state is user preferences (DataStore), below.
+ */
 val databaseModule = module {
     single { AppPreferenceRepo(get()) }
-    single { HistoryPreferenceRepo(get(), get()) }
-
-    single {
-        Room.databaseBuilder(
-            androidContext(),
-            AppDatabase::class.java,
-            "database"
-        )
-            .addMigrations(
-                MIGRATION_1_2,
-                MIGRATION_2_3,
-                MIGRATION_3_4
-            )
-            .build()
-    }
-    single { get<AppDatabase>().dataPlanDao() }
-    single { DataPlanRepository(get()) }
+    single { HistoryPreferenceRepo(get()) }
+    single { AppsPreferenceRepo(get()) }
 }

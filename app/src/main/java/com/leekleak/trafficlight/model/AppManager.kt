@@ -50,10 +50,25 @@ class AppManager(context: Context, scope: CoroutineScope) {
             }.awaitAll()
         }
     }
+
+    // getAppForUID() used to do getAllApps().plus(specialApps).find { it.uid == uid } - a
+    // full linear scan of every installed app on the device, on every call. getAllAppUsage()
+    // calls getAppForUID() once per UID that has any usage (a comparably-sized set), so that
+    // was effectively O(installed apps × active UIDs) per query. Indexed once, lazily, into
+    // a Map keyed by uid, it's O(1) per lookup instead. Special UIDs (tethering, removed,
+    // other-users, ...) are reserved negative sentinels that never collide with a real app's
+    // uid (always ≥ 10000 on Android), so concatenation order here can't change which entry
+    // wins for any uid that could actually occur.
+    private val allAppsByUidDeferred: Deferred<Map<Int, DataUID>> by lazy {
+        scope.async(Dispatchers.IO) {
+            (allAppsDeferred.await() + specialApps).associateBy { it.uid }
+        }
+    }
+
     suspend fun getAllApps(): List<DataUIDApp> = allAppsDeferred.await()
 
     suspend fun getAppForUID(uid: Int): DataUID {
-        return getAllApps().plus(specialApps).find { it.uid == uid } ?: DataUIDService(uid = uid)
+        return allAppsByUidDeferred.await()[uid] ?: DataUIDService(uid = uid)
     }
 
     companion object {
@@ -81,16 +96,9 @@ class AppManager(context: Context, scope: CoroutineScope) {
             drawableResource = R.drawable.group,
             stringResource = R.string.other_users
         )
-        val unknownApp = DataUIDSpecial(
-            uid = UID_UNKNOWN,
-            packageName = "",
-            drawableResource = R.drawable.help,
-            stringResource = R.string.unknown
-        )
-        val specialApps = listOf(allApp, tetheringApp, removedApp, otherUsersApp, unknownApp)
+        val specialApps = listOf(allApp, tetheringApp, removedApp, otherUsersApp)
         val specialUIDs = listOf(UID_REMOVED, UID_TETHERING, UID_OTHER_USERS)
         const val UID_OTHER_USERS = -98
-        const val UID_UNKNOWN = -99
         const val UID_ALL = -100
     }
 }

@@ -1,6 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">ترافیک لایت: شوێنپێکەری تۆڕ</string>
     <string name="app_name_short">ترافیک لایت</string>
     <string name="today">ئەمڕۆ</string>
     <string name="this_week">ئەم هەفتەیە</string>
@@ -23,7 +22,6 @@
     <string name="force_fallback">بەدواداچوونی خێراییی جێگرەوە بسەپێنە.</string>
     <string name="force_fallback_description">بەسوودە لە کاتی بەکارهێنانی ڕۆمێکی پڕکێشە یان ئیسەرنێت</string>
     <string name="fallback_unsupported">جێگرەوە پشتگیری ناکرێت</string>
-    <string name="ui">ڕووکار</string>
     <string name="auto">خۆکار</string>
     <string name="light">ڕووناک</string>
     <string name="dark">تاریک</string>
@@ -31,47 +29,17 @@
     <string name="help">یارمەتی</string>
     <string name="advanced_settings">ڕێکخستنە پێشکەوتووەکان</string>
     <string name="notification_description">چاودێریکردنی خێراییی تۆڕ لە شریتی دۆخدا</string>
-    <string name="missing_permissions">مۆڵەتە ونبووەکان</string>
     <string name="total_usage">کۆی بەکارهێنان</string>
-    <string name="unknown">نەزانراو</string>
     <string name="appearance">ڕووکار</string>
     <string name="behavior">ڕەفتار</string>
-    <string name="alt_vpn_workaround">ڕێگەچارەی جێگرەوەی VPN</string>
-    <string name="alt_vpn_workaround_description">وردیی پێوانەکردن کەمدەکاتەوە بەڵام ڕێگە بە تونێلکردنی جیاکەرەوە دەدات.</string>
-    <string name="shizuku_not_running">شیزوکو کار ناکات</string>
-    <string name="sim_card">سیم کارد</string>
-    <string name="data_plans">پلانەکانی داتا</string>
-    <string name="configure_plan">پلان ڕێکبخە</string>
-    <string name="background">پاشبنەما</string>
-    <string name="type">جۆر</string>
-    <string name="monthly">مانگانە</string>
-    <string name="custom">تایبەت</string>
-    <string name="this_month">ئەم مانگە</string>
-    <string name="zero_rated_apps">ئەپە بێ تێچووەکانی داتا</string>
-    <string name="save">پاشەکەوتکردن</string>
     <string name="no_apps">هیچ ئەپێک</string>
     <string name="day">ڕۆژ:</string>
-    <string name="time">کات:</string>
-    <string name="length">درێژی:</string>
-    <string name="days">ڕۆژەکان</string>
     <string name="add_widget">ئامڕازۆک زیادبکە</string>
-    <string name="configured_plans">پلانە ڕێکخراوەکان</string>
-    <string name="data_plan_widget_description">چاودێری پلانەکانی داتات بکە لەسەر شاشەی سەرەکی</string>
     <string name="tethering">پەخشەخاڵی مۆبایل</string>
     <string name="removed_apps">ئەپە لابراوەکان</string>
-    <string name="prediction">پێشبینی</string>
-    <string name="trend">ڕەوت</string>
     <string name="mobile_data">داتای مۆبایل</string>
     <string name="notification_channels">ڕێکخستنەکانی کەناڵی ئاگانامە</string>
     <string name="go_back">گەڕانەوە</string>
     <string name="overview">کورتەی گشتی</string>
-    <string name="multi_sim_tracking">چاودێریکردنی فڕەسیمکارت</string>
-    <string name="shizuku_required">شیزوکۆ پێویستە</string>
     <string name="close">داخستن</string>
-    <string name="shizuku_hint">دەتەوێت چاودێری فڕەسیمکارت بکەیت؟</string>
-    <string name="shizuku_hint_description">بۆ ئەنجامدانی ئەوە، پێویستە شیزوکو ڕێکبخەیت و تایبەتمەندییەکە لە ڕێکخستنەکاندا چالاک بکەیت.</string>
-    <plurals name="resets_in_days">
-        <item quantity="one">سبەی نوێ دەبێتەوە</item>
-        <item quantity="other">دوای %d ڕۆژی تر نوێ دەبێتەوە</item>
-    </plurals>
 </resources>

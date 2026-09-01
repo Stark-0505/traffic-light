@@ -4,14 +4,11 @@ import android.app.Application
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.NotificationManager.IMPORTANCE_DEFAULT
-import android.app.NotificationManager.IMPORTANCE_HIGH
 import android.app.NotificationManager.IMPORTANCE_LOW
 import com.leekleak.trafficlight.database.databaseModule
 import com.leekleak.trafficlight.integrations.integrationsModule
 import com.leekleak.trafficlight.model.managerModule
-import com.leekleak.trafficlight.services.notifications.PlanNotification
 import com.leekleak.trafficlight.services.notifications.SpeedNotification
-import com.leekleak.trafficlight.services.notifications.WarningNotificationHelper
 import com.leekleak.trafficlight.services.notifications.notificationModule
 import com.leekleak.trafficlight.ui.navigation.navigationModule
 import com.leekleak.trafficlight.ui.viewModelModule
@@ -62,31 +59,11 @@ class TrafficLightApplication : Application() {
             setShowBadge(false)
         }
 
-        val planChannel = NotificationChannel(
-            PlanNotification.NOTIFICATION_CHANNEL_ID,
-            getString(R.string.plan_notification),
-            IMPORTANCE_DEFAULT
-        ).apply {
-            setShowBadge(false)
-        }
-
-        val planWarningChannel = NotificationChannel(
-            WarningNotificationHelper.NOTIFICATION_CHANNEL_ID,
-            getString(R.string.plan_warning_notification),
-            IMPORTANCE_HIGH
-        ).apply {
-            enableLights(true)
-            enableVibration(true)
-            setShowBadge(true)
-        }
-
         val notificationManager = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
         notificationManager.createNotificationChannels(
             listOf(
                 speedChannel,
                 speedChannelSilent,
-                planChannel,
-                planWarningChannel
             )
         )
     }

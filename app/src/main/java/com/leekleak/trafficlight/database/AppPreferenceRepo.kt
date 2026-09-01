@@ -8,7 +8,6 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
-import com.leekleak.trafficlight.BuildConfig
 import com.leekleak.trafficlight.ui.theme.Theme
 import com.leekleak.trafficlight.util.valueOfOrNull
 import kotlinx.coroutines.flow.Flow
@@ -38,9 +37,6 @@ class AppPreferenceRepo (
     val forceFallback: Flow<Boolean> = data.map { it[FORCE_FALLBACK] ?: false }.distinctUntilChanged()
     suspend fun setForceFallback(value: Boolean) = dataStore.edit { it[FORCE_FALLBACK] = value }
 
-    val altVpn: Flow<Boolean> = data.map { it[ALT_VPN_WORKAROUND] ?: false }.distinctUntilChanged()
-    suspend fun setAltVpn(value: Boolean) = dataStore.edit { it[ALT_VPN_WORKAROUND] = value }
-
     val liveNotification: Flow<Boolean> = data.map { it[LIVE_NOTIFICATION] ?: false }.distinctUntilChanged()
     suspend fun setLiveNotification(value: Boolean) = dataStore.edit { it[LIVE_NOTIFICATION] = value }
 
@@ -62,12 +58,6 @@ class AppPreferenceRepo (
     val blur: Flow<Boolean> = data.map { prefs -> prefs[BLUR] ?: true }.distinctUntilChanged()
     suspend fun setBlur(value: Boolean) = dataStore.edit { it[BLUR] = value }
 
-    val shizukuTracking: Flow<Boolean> = data.map { it[SHIZUKU_TRACKING] ?: false }.distinctUntilChanged()
-    suspend fun setShizukuTracking(value: Boolean) = dataStore.edit { it[SHIZUKU_TRACKING] = value }
-
-    val shizukuHint: Flow<Boolean> = data.map { it[SHIZUKU_HINT] ?: BuildConfig.SHIZUKU }.distinctUntilChanged()
-    suspend fun setShizukuHint(value: Boolean) = dataStore.edit { it[SHIZUKU_HINT] = value }
-
     val ads: Flow<Boolean> = data.map { it[ADS] ?: false }.distinctUntilChanged()
     suspend fun setAds(value: Boolean) = dataStore.edit { it[ADS] = value }
 
@@ -81,15 +71,12 @@ class AppPreferenceRepo (
         private val SPEED_BITS = booleanPreferencesKey("speed_bits")
         private val SEPARATE_UP_DOWN = booleanPreferencesKey("separate_up_down")
         private val FORCE_FALLBACK = booleanPreferencesKey("force_fallback")
-        private val ALT_VPN_WORKAROUND = booleanPreferencesKey("alt_vpn")
         private val SPEED_THRESHOLD = booleanPreferencesKey("speed_threshold")
         private val SPEED_THRESHOLD_KB = longPreferencesKey("speed_threshold_kb")
         private val SPEED_METRIC = booleanPreferencesKey("speed_metric")
         private val SIZE_METRIC = booleanPreferencesKey("size_metric")
         private val THEME = stringPreferencesKey("theme")
         private val BLUR = booleanPreferencesKey("blur")
-        private val SHIZUKU_TRACKING = booleanPreferencesKey("shizuku_tracking")
-        private val SHIZUKU_HINT = booleanPreferencesKey("shizuku_hint")
         private val ADS = booleanPreferencesKey("supporter_ads")
         private val OVERVIEW_DATA_TYPE = stringPreferencesKey("overview_data_type")
     }

@@ -11,7 +11,6 @@ import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
@@ -79,9 +78,6 @@ fun Modifier.card(): Modifier {
         .clip(MaterialTheme.shapes.large)
         .background(colorScheme.surfaceContainer)
 }
-
-val backgrounds = listOf(null, R.drawable.background_1, R.drawable.background_2, R.drawable.background_3, R.drawable.background_4)
-
 
 internal val lightScheme = lightColorScheme(
     primary = PrimaryLight,

@@ -1,10 +1,10 @@
 package com.leekleak.trafficlight.ui.navigation
 
 import com.leekleak.trafficlight.model.PermissionManager
+import com.leekleak.trafficlight.ui.apps.AppDetail
+import com.leekleak.trafficlight.ui.apps.Apps
 import com.leekleak.trafficlight.ui.history.History
 import com.leekleak.trafficlight.ui.overview.Overview
-import com.leekleak.trafficlight.ui.plans.DataPlanConfig
-import com.leekleak.trafficlight.ui.plans.DataPlans
 import com.leekleak.trafficlight.ui.settings.LibraryLicenseScreen
 import com.leekleak.trafficlight.ui.settings.NotificationSettingsScreen
 import com.leekleak.trafficlight.ui.settings.Settings
@@ -23,11 +23,11 @@ val navigationModule = module {
         Navigator(startDestination = destination)
     }
     navigation<OverviewKey> { Overview() }
-    navigation<DataPlansKey> { DataPlans() }
     navigation<HistoryKey> { History() }
+    navigation<AppsKey> { Apps() }
+    navigation<AppDetailKey> { key -> AppDetail(key.uid) }
     navigation<SettingsKey> { Settings(get()) }
     navigation<UsagePermissionRequestKey> { UsagePermissionRequest() }
-    navigation<PlanConfigKey> { key -> DataPlanConfig(key.dataPlan)  }
     navigation<NotificationSettingsKey> { NotificationSettingsScreen(get()) }
     navigation<LibraryLicenseScreen> { LibraryLicenseScreen(get()) }
 }

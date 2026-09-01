@@ -88,7 +88,6 @@ class SpeedNotification(
             trafficSnapshot.updateSnapshot()
             trafficSnapshot.setCurrentAsLast()
             while (true) {
-                Timber.i("Updating notification")
                 trafficSnapshot.updateSnapshot()
 
                 /**
@@ -122,6 +121,18 @@ class SpeedNotification(
     override fun screenStateChange(on: Boolean) {
         if (on) start()
         else if (!aodMode) job?.cancel()
+    }
+
+    override fun cancel() {
+        // TrafficSnapshot registers its own ConnectivityManager.NetworkCallback (see
+        // TrafficSnapshot's class doc) - it's tied to this notification's lifetime, not
+        // the wider service's, since a new TrafficSnapshot is created each time the user
+        // re-enables the notification. Releasing it here (rather than only relying on the
+        // scope-completion hook inside TrafficSnapshot itself, which only fires once the
+        // whole service is torn down) means toggling the preference off/on repeatedly
+        // within one service lifetime can't accumulate unregistered callbacks.
+        trafficSnapshot.stopTrackingNetworkChanges()
+        super.cancel()
     }
 
     private var lastTitle: String = ""
@@ -254,6 +265,13 @@ class SpeedNotification(
                 hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)
             } ?: false
         } else {
+            // minSdk is 28, so this branch is still live on real Android 9-11 devices,
+            // not dead code - activeNetwork/getNetworkCapabilities() existed before API 31
+            // too, but had known reliability gaps in multi-network scenarios on those
+            // earlier versions, which is why this falls back to the (deprecated, but on
+            // these OS versions more dependable) NetworkInfo API instead of lowering the
+            // SDK_INT cutoff above.
+            @Suppress("DEPRECATION")
             connectivityManager.activeNetworkInfo?.run {
                 when (type) {
                     ConnectivityManager.TYPE_WIFI -> true

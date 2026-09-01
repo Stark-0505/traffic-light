@@ -15,20 +15,11 @@ import android.provider.Settings
 import android.widget.Toast
 import androidx.core.net.toUri
 import com.leekleak.trafficlight.R
-import com.leekleak.trafficlight.database.AppPreferenceRepo
-import com.leekleak.trafficlight.integrations.ShizukuServicesProvider
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.collectLatest
-import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.launch
 
 class PermissionManager(
     private val context: Context,
-    scope: CoroutineScope,
-    appPreferenceRepo: AppPreferenceRepo,
-    private val shizukuServicesProvider: ShizukuServicesProvider
 ) {
     private val _backgroundPermission = MutableStateFlow(false)
     val backgroundPermissionFlow = _backgroundPermission.asStateFlow()
@@ -38,32 +29,6 @@ class PermissionManager(
 
     private val _notificationPermission = MutableStateFlow(false)
     val notificationPermissionFlow = _notificationPermission.asStateFlow()
-
-    private val _shizukuRunning = MutableStateFlow(false)
-    val shizukuRunningFlow = _shizukuRunning.asStateFlow()
-
-    private val _shizukuPermission = MutableStateFlow(false)
-    val shizukuPermissionFlow = _shizukuPermission.asStateFlow()
-
-    init {
-        scope.launch {
-            combine(
-                appPreferenceRepo.shizukuTracking,
-                shizukuPermissionFlow,
-                shizukuRunningFlow
-            ) {
-                setting, permission, running ->
-                return@combine Triple(setting, permission, running)
-            }.collectLatest { (setting, permission, running) ->
-                if (setting && permission && running) {
-                    shizukuServicesProvider.enable()
-                } else if (!setting) {
-                    shizukuServicesProvider.disable()
-                    shizukuServicesProvider.updateSimData()
-                }
-            }
-        }
-    }
 
     fun askBackgroundPermission(activity: Activity?) {
         activity?.startActivity(
@@ -121,13 +86,6 @@ class PermissionManager(
             context.checkSelfPermission(POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
         } else {
             true
-        }
-
-        _shizukuRunning.value = shizukuServicesProvider.shizukuRunning()
-        if (_shizukuRunning.value) {
-            _shizukuPermission.value = shizukuServicesProvider.shizukuPermission() == PackageManager.PERMISSION_GRANTED
-        } else {
-            _shizukuPermission.value = false
         }
     }
 }

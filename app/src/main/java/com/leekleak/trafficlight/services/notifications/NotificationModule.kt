@@ -1,6 +1,5 @@
 package com.leekleak.trafficlight.services.notifications
 
-import com.leekleak.trafficlight.database.DataPlan
 import com.leekleak.trafficlight.database.TrafficSnapshot
 import kotlinx.coroutines.CoroutineScope
 import org.koin.android.ext.koin.androidContext
@@ -17,17 +16,6 @@ val notificationModule = module {
             connectivityManager = get(),
             appPreferenceRepo = get(),
             trafficSnapshot = TrafficSnapshot(scope, get(), get())
-        )
-    }
-    factory { (scope: CoroutineScope, id: Int, dataPlan: DataPlan) ->
-        PlanNotification(
-            serviceScope = scope,
-            context = androidContext(),
-            notificationId = id,
-            dataPlan = dataPlan,
-            networkUsageManager = get(),
-            notificationManager = get(),
-            appPreferenceRepo = get(),
         )
     }
 }
