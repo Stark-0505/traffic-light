@@ -119,16 +119,24 @@ class NotificationService : LifecycleService() {
     }
 
     companion object {
-        fun startService(context: Context, scope: CoroutineScope) {
-            scope.launch {
-                try {
-                    context.startService(Intent(context, NotificationService::class.java))
-                } catch (e: SecurityException) {
-                    Timber.e(e, "Failed to start NotificationService due to permissions")
-                } catch (e: IllegalStateException) {
-                    Timber.e(e, "Failed to start NotificationService due to background limits")
-                }
+        /**
+         * Starts the service immediately on the calling thread. Prefer this from broadcast
+         * receivers: launching it asynchronously (the overload below) can run it after the
+         * receiver has already finished, when the system's short post-broadcast window for
+         * background service starts may be over.
+         */
+        fun startService(context: Context) {
+            try {
+                context.startService(Intent(context, NotificationService::class.java))
+            } catch (e: SecurityException) {
+                Timber.e(e, "Failed to start NotificationService due to permissions")
+            } catch (e: IllegalStateException) {
+                Timber.e(e, "Failed to start NotificationService due to background limits")
             }
+        }
+
+        fun startService(context: Context, scope: CoroutineScope) {
+            scope.launch { startService(context) }
         }
     }
 }

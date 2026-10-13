@@ -90,17 +90,9 @@ class Widget : GlanceAppWidget() {
         var stateChanged = false
         updateAppWidgetState(context, PreferencesGlanceStateDefinition, id) { prefs ->
             val mutable = prefs.toMutablePreferences()
-            val combined = "$usageString$decimalString $unitString"
-            if (mutable[LAST_USAGE] == combined && mutable[LAST_NETWORK] == network.name) {
-                Timber.i("Skipping widget refresh")
-                mutable
-            } else {
-                stateChanged = true
-                mutable.apply {
-                    this[LAST_USAGE] = combined
-                    this[LAST_NETWORK] = network.name
-                }
-            }
+            stateChanged = mutable.recordRendered("$usageString$decimalString $unitString", network.name)
+            if (!stateChanged) Timber.i("Skipping widget refresh")
+            mutable
         }
 
         if (!stateChanged) return

@@ -11,8 +11,8 @@ import androidx.core.content.ContextCompat
 import androidx.glance.appwidget.GlanceAppWidget
 import androidx.glance.appwidget.GlanceAppWidgetManager
 import androidx.glance.appwidget.GlanceAppWidgetReceiver
+import com.leekleak.trafficlight.util.launchBroadcastWork
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.launch
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
 import timber.log.Timber
@@ -33,7 +33,10 @@ class WidgetReceiver: GlanceAppWidgetReceiver(), KoinComponent {
         val pendingResult = goAsync()
         registerReceiver(context)
 
-        applicationScope.launch {
+        // pendingResult.finish() is guaranteed (success, failure, cancellation or timeout)
+        // by launchBroadcastWork; the per-widget catches below only keep one bad widget id
+        // from stopping the refresh of the others.
+        applicationScope.launchBroadcastWork(finish = pendingResult::finish) {
             for (appWidgetId in appWidgetIds) {
                 try {
                     val glanceId = GlanceAppWidgetManager(context).getGlanceIdBy(appWidgetId)
@@ -46,7 +49,6 @@ class WidgetReceiver: GlanceAppWidgetReceiver(), KoinComponent {
                     Timber.e(e, "Failed to update widget: IO error")
                 }
             }
-            pendingResult.finish()
         }
     }
 

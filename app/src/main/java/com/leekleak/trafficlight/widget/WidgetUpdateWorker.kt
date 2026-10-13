@@ -7,8 +7,8 @@ import android.content.Context
 import android.content.Context.ALARM_SERVICE
 import android.content.Intent
 import androidx.glance.appwidget.updateAll
+import com.leekleak.trafficlight.util.launchBroadcastWork
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.launch
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
 import timber.log.Timber
@@ -43,7 +43,7 @@ class WidgetUpdateReceiver: BroadcastReceiver(), KoinComponent {
 
     override fun onReceive(context: Context, intent: Intent) {
         val pendingResult = goAsync()
-        applicationScope.launch {
+        applicationScope.launchBroadcastWork(finish = pendingResult::finish) {
             try {
                 Widget().updateAll(context)
             } catch (e: IllegalArgumentException) {
@@ -52,8 +52,6 @@ class WidgetUpdateReceiver: BroadcastReceiver(), KoinComponent {
                 Timber.e(e, "Failed to update all widgets: invalid state")
             } catch (e: java.io.IOException) {
                 Timber.e(e, "Failed to update all widgets: IO error")
-            } finally {
-                pendingResult.finish()
             }
         }
     }
