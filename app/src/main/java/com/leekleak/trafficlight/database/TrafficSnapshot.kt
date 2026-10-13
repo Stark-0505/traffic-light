@@ -10,6 +10,7 @@ import android.net.TrafficStats
 import android.os.SystemClock
 import com.leekleak.trafficlight.model.DataUID
 import com.leekleak.trafficlight.util.toLocaleHourString
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -18,7 +19,7 @@ import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import timber.log.Timber
-import java.io.File
+import java.io.IOException
 import java.time.LocalDate
 import java.time.LocalDateTime
 
@@ -76,10 +77,14 @@ data class HourUsage(
  * from the previous sample's, the measurement is rebaselined (reported as 0)
  * instead of diffing two unrelated counters.
  */
-class TrafficSnapshot (
+class TrafficSnapshot internal constructor(
     private val scope: CoroutineScope,
     private val appPreferenceRepo: AppPreferenceRepo,
     private val connectivityManager: ConnectivityManager,
+    private val fallbackCounters: SysfsFallbackCounters = SysfsFallbackCounters(),
+    // Where blocking counter reads run. `scope` is typically a lifecycleScope (i.e. Main),
+    // so the dispatcher is explicit and injectable rather than inherited from the caller.
+    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) {
     @Volatile private var lastDown: Long = 0
     @Volatile private var lastUp: Long = 0
@@ -157,35 +162,50 @@ class TrafficSnapshot (
         lastElapsedRealtimeMs = currentElapsedRealtimeMs
     }
 
+    /**
+     * Takes a new counter sample. Suspends on [ioDispatcher] for the whole sample - the
+     * TrafficStats queries and, in fallback mode, the sysfs file reads - so it is safe to
+     * call from a main-dispatcher scope, and costs one dispatcher switch per tick.
+     *
+     * The sample is written to the `current*` fields only from within this block, and the
+     * only readers ([upSpeed], [downSpeed], [isCurrentSameAsLast], [setCurrentAsLast]) run
+     * after this call returns in the same coroutine, so a sample is never observed half-written.
+     */
     suspend fun updateSnapshot() {
+        withContext(ioDispatcher) { sample() }
+    }
+
+    private fun sample() {
         currentElapsedRealtimeMs = SystemClock.elapsedRealtime()
         if (useFallback) {
             try {
                 fallbackUpdateSnapshot()
-            } catch (e: java.io.IOException) {
-                Timber.e(e, "Fallback IO error")
-                scope.launch { appPreferenceRepo.setForceFallback(false) }
-                useFallback = false
+            } catch (e: IOException) {
+                disableFallback("Fallback IO error", e)
             } catch (e: NumberFormatException) {
-                Timber.e(e, "Fallback number format error")
-                scope.launch { appPreferenceRepo.setForceFallback(false) }
-                useFallback = false
+                disableFallback("Fallback number format error", e)
             } catch (e: SecurityException) {
                 // The device's SELinux policy can deny raw sysfs traversal
                 // (/sys/class/net/*) to untrusted apps even when the file's plain Unix
                 // permissions look readable - canRead() only checks the latter. This
                 // fallback is a last resort for devices without a working TrafficStats,
                 // so if the OS won't allow it either, stop retrying it every tick.
-                Timber.e(e, "Fallback denied by SELinux policy")
-                scope.launch { appPreferenceRepo.setForceFallback(false) }
-                useFallback = false
+                disableFallback("Fallback denied by SELinux policy", e)
             }
+            // CancellationException is deliberately not caught: withContext() cancellation
+            // surfaces at the dispatcher boundary and must propagate to the caller.
         } else {
             regularUpdateSnapshot()
         }
     }
 
-    private suspend fun regularUpdateSnapshot() = withContext(Dispatchers.IO) {
+    private fun disableFallback(reason: String, e: Exception) {
+        Timber.e(e, reason)
+        scope.launch { appPreferenceRepo.setForceFallback(false) }
+        useFallback = false
+    }
+
+    private fun regularUpdateSnapshot() {
         val interfaces = cachedPhysicalInterfaces
         if (interfaces.isEmpty()) {
             // No physical (Wi-Fi/cellular/Ethernet) network is visible to this app right
@@ -196,7 +216,7 @@ class TrafficSnapshot (
             currentSourceKey = SOURCE_TOTAL
             currentDown = TrafficStats.getTotalRxBytes()
             currentUp = TrafficStats.getTotalTxBytes()
-            return@withContext
+            return
         }
 
         currentSourceKey = interfaces.sorted().joinToString(",")
@@ -246,30 +266,34 @@ class TrafficSnapshot (
         TrafficStats.getTxBytes(this).let { if (it == TrafficStats.UNSUPPORTED.toLong()) 0L else it }
 
     private fun fallbackUpdateSnapshot() {
+        // Read everything first and publish afterwards, so a failure part-way through
+        // (unreadable or malformed file) leaves the previous sample fully intact instead
+        // of a mix of old and new values.
+        val reading = fallbackCounters.read()
         currentSourceKey = SOURCE_FALLBACK
-        val mobileUp = mobileTxFile.readLongOrZero()
-        val mobileDown = mobileRxFile.readLongOrZero()
-        val wifiUp = wifiTxFile.readLongOrZero() + ethTxFile.readLongOrZero()
-        val wifiDown = wifiRxFile.readLongOrZero() + ethRxFile.readLongOrZero()
-        currentUp = mobileUp + wifiUp
-        currentDown = mobileDown + wifiDown
+        currentUp = reading.up
+        currentDown = reading.down
     }
 
     fun isCurrentSameAsLast(): Boolean = lastDown == currentDown && lastUp == currentUp
-
-    private fun File.readLongOrZero() = if (canRead()) readText().trim().toLong() else 0L
 
     companion object {
         private const val SOURCE_TOTAL = "total"
         private const val SOURCE_FALLBACK = "fallback"
 
-        private val mobileRxFile: File by lazy { File("/sys/class/net/rmnet0/statistics/rx_bytes") }
-        private val mobileTxFile: File by lazy { File("/sys/class/net/rmnet0/statistics/tx_bytes") }
-        private val wifiRxFile: File by lazy { File("/sys/class/net/wlan0/statistics/rx_bytes") }
-        private val wifiTxFile: File by lazy { File("/sys/class/net/wlan0/statistics/tx_bytes") }
-        private val ethRxFile: File by lazy { File("/sys/class/net/eth0/statistics/rx_bytes") }
-        private val ethTxFile: File by lazy { File("/sys/class/net/eth0/statistics/tx_bytes") }
-        fun doesFallbackWork(): Boolean = mobileRxFile.canRead() || wifiRxFile.canRead() || ethRxFile.canRead()
+        private val defaultFallbackCounters: SysfsFallbackCounters by lazy { SysfsFallbackCounters() }
+
+        /**
+         * Whether the sysfs fallback can read any counter on this device. Touches the
+         * filesystem, so it suspends on the IO dispatcher - never call it during
+         * composition; collect it from a coroutine (e.g. `produceState`) instead.
+         */
+        suspend fun doesFallbackWork(): Boolean = doesFallbackWork(defaultFallbackCounters, Dispatchers.IO)
+
+        internal suspend fun doesFallbackWork(
+            counters: SysfsFallbackCounters,
+            ioDispatcher: CoroutineDispatcher,
+        ): Boolean = withContext(ioDispatcher) { counters.isAvailable() }
     }
 }
 
