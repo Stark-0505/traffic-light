@@ -16,12 +16,11 @@ import com.leekleak.trafficlight.services.notifications.NotificationService
 import com.leekleak.trafficlight.ui.app.App
 import com.leekleak.trafficlight.ui.theme.AppTheme
 import com.leekleak.trafficlight.widget.WidgetReceiver
-import kotlinx.coroutines.delay
+import com.leekleak.trafficlight.widget.registerWidgetPreviews
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import org.koin.android.ext.android.inject
 import org.koin.compose.koinInject
-import kotlin.time.Duration.Companion.seconds
 
 class MainActivity : ComponentActivity() {
 
@@ -33,10 +32,14 @@ class MainActivity : ComponentActivity() {
 
         enableEdgeToEdge()
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.VANILLA_ICE_CREAM) {
+        // savedInstanceState != null means a configuration change or process-death restore of
+        // an activity that already did this on its original launch; repeating it on every
+        // rotation would just re-run the (rate-limited) preview registration.
+        if (savedInstanceState == null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.VANILLA_ICE_CREAM) {
             lifecycleScope.launch {
-                delay(1.seconds) // Apparently if you refresh previews too soon on app launch they'll be ignored
-                GlanceAppWidgetManager(applicationContext).setWidgetPreviews<WidgetReceiver>()
+                registerWidgetPreviews {
+                    GlanceAppWidgetManager(applicationContext).setWidgetPreviews<WidgetReceiver>()
+                }
             }
         }
 
