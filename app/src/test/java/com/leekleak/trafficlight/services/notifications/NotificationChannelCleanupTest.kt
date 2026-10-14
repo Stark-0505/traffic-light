@@ -3,12 +3,12 @@ package com.leekleak.trafficlight.services.notifications
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.Context
-import androidx.test.core.app.ApplicationProvider
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
 
 @RunWith(RobolectricTestRunner::class)
@@ -16,7 +16,7 @@ import org.robolectric.annotation.Config
 class NotificationChannelCleanupTest {
 
     private val manager: NotificationManager =
-        (ApplicationProvider.getApplicationContext<Context>().getSystemService(Context.NOTIFICATION_SERVICE)) as NotificationManager
+        RuntimeEnvironment.getApplication().getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
 
     private fun create(vararg ids: String) = ids.forEach {
         manager.createNotificationChannel(NotificationChannel(it, "name of $it", NotificationManager.IMPORTANCE_DEFAULT))

@@ -3,7 +3,6 @@ package com.leekleak.trafficlight.util
 import android.content.Context
 import android.os.Looper
 import android.provider.Settings
-import androidx.test.core.app.ApplicationProvider
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -21,6 +20,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.RuntimeEnvironment
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 import org.robolectric.shadows.ShadowContentResolver
@@ -32,7 +32,7 @@ import java.util.concurrent.atomic.AtomicInteger
 @Config(sdk = [34])
 class TimeFormatSourceTest {
 
-    private val context: Context = ApplicationProvider.getApplicationContext()
+    private val context: Context = RuntimeEnvironment.getApplication()
     private val uri = Settings.System.getUriFor(Settings.System.TIME_12_24)
 
     /** Simulates the user flipping the system setting: change the value, then notify observers. */
