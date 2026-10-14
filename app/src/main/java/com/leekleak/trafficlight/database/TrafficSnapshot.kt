@@ -19,6 +19,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import timber.log.Timber
 import java.io.IOException
+import java.util.concurrent.atomic.AtomicBoolean
 import java.time.LocalDate
 import java.time.LocalDateTime
 
@@ -95,14 +96,26 @@ class TrafficSnapshot internal constructor(
     @Volatile private var currentElapsedRealtimeMs: Long = lastElapsedRealtimeMs
     @Volatile private var useFallback: Boolean = TrafficStats.getTotalTxBytes() == TrafficStats.UNSUPPORTED.toLong()
 
-    // physicalInterfaceNames() used to be recomputed from ConnectivityManager (allNetworks +
-    // getNetworkCapabilities + getLinkProperties per network - several Binder calls) on every
-    // single speed tick, i.e. roughly once a second for as long as the notification is
-    // showing. A NetworkCallback only fires on actual connectivity changes, so caching its
-    // result and having the tick loop just read the cache turns that into "a few Binder calls
-    // per network change" instead of "a few Binder calls per second, all day."
-    @Volatile private var cachedPhysicalInterfaces: List<String> = physicalInterfaceNamesNow()
-    private var networkCallback: ConnectivityManager.NetworkCallback? = null
+    // Interface discovery (ConnectivityManager.allNetworks + getNetworkCapabilities +
+    // getLinkProperties per network - several Binder calls) used to run on every speed tick,
+    // i.e. about once a second for as long as the notification showed. It now runs only when
+    // needed, and always from sample() on the IO dispatcher:
+    //
+    //  - The NetworkCallback below does no Binder work itself: it only marks the cache dirty.
+    //    A single connectivity change typically fires several callbacks back-to-back
+    //    (available + capabilities + link properties), and capabilities callbacks also fire
+    //    for signal-strength changes; marking dirty is idempotent, so any number of events
+    //    between two ticks costs one discovery at the next tick, not one per event.
+    //  - The cache starts empty and dirty, so construction (typically on the main thread)
+    //    performs no Binder calls; the first sample discovers.
+    //  - If the callback could not be registered, nothing would ever mark the cache dirty, so
+    //    sample() instead re-discovers every POLLING_REFRESH_INTERVAL_MS. That keeps handovers
+    //    and VPN attach/detach reflected without returning to a Binder query per tick.
+    @Volatile private var cachedPhysicalInterfaces: List<String> = emptyList()
+    private val interfacesDirty = AtomicBoolean(true)
+    @Volatile private var callbackActive = false
+    @Volatile private var lastInterfaceRefreshMs = 0L
+    @Volatile private var networkCallback: ConnectivityManager.NetworkCallback? = null
 
     init {
         appPreferenceRepo.forceFallback
@@ -110,16 +123,17 @@ class TrafficSnapshot internal constructor(
             .launchIn(scope)
 
         val callback = object : ConnectivityManager.NetworkCallback() {
-            override fun onAvailable(network: Network) = refreshCachedInterfaces()
-            override fun onLost(network: Network) = refreshCachedInterfaces()
-            override fun onCapabilitiesChanged(network: Network, capabilities: NetworkCapabilities) = refreshCachedInterfaces()
-            override fun onLinkPropertiesChanged(network: Network, linkProperties: LinkProperties) = refreshCachedInterfaces()
+            override fun onAvailable(network: Network) = markInterfacesDirty()
+            override fun onLost(network: Network) = markInterfacesDirty()
+            override fun onCapabilitiesChanged(network: Network, capabilities: NetworkCapabilities) = markInterfacesDirty()
+            override fun onLinkPropertiesChanged(network: Network, linkProperties: LinkProperties) = markInterfacesDirty()
         }
         try {
             connectivityManager.registerNetworkCallback(NetworkRequest.Builder().build(), callback)
             networkCallback = callback
+            callbackActive = true
         } catch (e: SecurityException) {
-            Timber.e(e, "Failed to register network callback; falling back to per-tick interface discovery")
+            Timber.e(e, "Failed to register network callback; polling interface discovery every ${POLLING_REFRESH_INTERVAL_MS}ms instead")
         }
         // Whichever CoroutineScope this TrafficSnapshot belongs to ends together with the
         // thing that owns it (the notification service's lifecycleScope) - tying the
@@ -132,6 +146,9 @@ class TrafficSnapshot internal constructor(
     fun stopTrackingNetworkChanges() {
         networkCallback?.let {
             networkCallback = null
+            // No more events will mark the cache dirty; if this snapshot is sampled again it
+            // must poll rather than trust a cache nothing can invalidate.
+            callbackActive = false
             try {
                 connectivityManager.unregisterNetworkCallback(it)
             } catch (e: IllegalArgumentException) {
@@ -141,8 +158,25 @@ class TrafficSnapshot internal constructor(
         }
     }
 
-    private fun refreshCachedInterfaces() {
-        cachedPhysicalInterfaces = physicalInterfaceNamesNow()
+    private fun markInterfacesDirty() {
+        interfacesDirty.set(true)
+    }
+
+    /** Re-discovers physical interfaces if flagged dirty, or (no callback) if the cache is old. */
+    private fun refreshInterfacesIfNeeded(nowMs: Long) {
+        // Cleared *before* querying: an event that arrives during the query re-marks the
+        // cache dirty and is picked up by the next tick instead of being lost.
+        val dirty = interfacesDirty.getAndSet(false)
+        val stale = !callbackActive && nowMs - lastInterfaceRefreshMs >= POLLING_REFRESH_INTERVAL_MS
+        if (!dirty && !stale) return
+        lastInterfaceRefreshMs = nowMs
+        try {
+            cachedPhysicalInterfaces = physicalInterfaceNamesNow()
+        } catch (e: SecurityException) {
+            // Keep the last known interfaces: better a possibly outdated set (a source change
+            // is still caught by the rebaseline) than none. A later event or poll retries.
+            Timber.e(e, "Interface discovery denied; keeping previous interfaces")
+        }
     }
 
     val totalSpeed: Long
@@ -205,6 +239,7 @@ class TrafficSnapshot internal constructor(
     }
 
     private fun regularUpdateSnapshot() {
+        refreshInterfacesIfNeeded(currentElapsedRealtimeMs)
         val interfaces = cachedPhysicalInterfaces
         if (interfaces.isEmpty()) {
             // No physical (Wi-Fi/cellular/Ethernet) network is visible to this app right
@@ -239,10 +274,10 @@ class TrafficSnapshot internal constructor(
      * always reports `TRANSPORT_VPN` and is excluded, while the physical network
      * underneath it keeps being reported on its own, without that transport.
      *
-     * This is a synchronous, immediate ConnectivityManager query - only meant to be called
-     * to (re)populate [cachedPhysicalInterfaces], i.e. once at construction and again from
-     * [refreshCachedInterfaces] when the registered NetworkCallback reports an actual
-     * change. The speed-tick loop itself never calls this directly; it reads the cache.
+     * This is a synchronous ConnectivityManager query (several Binder calls) - only meant to
+     * be called from [refreshInterfacesIfNeeded], on the IO dispatcher, to (re)populate
+     * [cachedPhysicalInterfaces]: on the first sample, after the NetworkCallback reported a
+     * change, or periodically when no callback could be registered. Ordinary ticks read the cache.
      */
     @Suppress("DEPRECATION")
     private fun physicalInterfaceNamesNow(): List<String> =
@@ -279,6 +314,9 @@ class TrafficSnapshot internal constructor(
     companion object {
         private const val SOURCE_TOTAL = "total"
         private const val SOURCE_FALLBACK = "fallback"
+
+        /** Re-discovery period when no NetworkCallback is available to flag changes. */
+        internal const val POLLING_REFRESH_INTERVAL_MS = 2_000L
 
         private val defaultFallbackCounters: SysfsFallbackCounters by lazy { SysfsFallbackCounters() }
 

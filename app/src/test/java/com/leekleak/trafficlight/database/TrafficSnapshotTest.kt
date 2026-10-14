@@ -113,9 +113,11 @@ class TrafficSnapshotTest {
         every { TrafficStats.getRxBytes("rmnet0") } returns 50_000_000_000L
         every { TrafficStats.getTxBytes("rmnet0") } returns 5_000_000_000L
 
-        // Stubbed before construction: TrafficSnapshot now discovers the initial set of
-        // physical interfaces eagerly at construction time (see cachedPhysicalInterfaces),
-        // not only lazily on the first updateSnapshot() call.
+        // Stubbed before construction for clarity; TrafficSnapshot discovers the initial set of
+        // physical interfaces on the first updateSnapshot() call (off the main thread), not at
+        // construction. No NetworkCallback event is fired in this test, so the interface set
+        // stays cached; handover through callback events is covered, with real rebaselining and
+        // measurement of the new interface, in TrafficSnapshotInterfaceDiscoveryTest.
         every { connectivityManager.allNetworks } returns arrayOf(wifi)
         val snapshot = TrafficSnapshot(this, appPreferenceRepo, connectivityManager)
         snapshot.updateSnapshot()
