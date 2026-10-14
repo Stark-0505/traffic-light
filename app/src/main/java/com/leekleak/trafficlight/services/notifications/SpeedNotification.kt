@@ -194,7 +194,7 @@ class SpeedNotification(
                     setShortCriticalText(data)
                 }
             }
-            .setWhen(Long.MAX_VALUE) // Keep above other notifications
+            .setWhen(notificationOrderingWhen(System.currentTimeMillis())) // Keep above other notifications; see NotificationOrdering.kt
             .setShowWhen(false) // Hide timestamp
             .setContentTitle(title)
             .setContentText(messageShort)
