@@ -267,4 +267,47 @@ class TrafficSnapshotInterfaceDiscoveryTest {
 
         assertEquals(2_000L, snapshot.downSpeed)
     }
+
+    /*
+     * Some platforms (e.g. GrapheneOS with a revoked network permission, per upstream 6d69b14)
+     * answer ConnectivityManager queries as if no network were configured. The fork does not
+     * port that commit's INTERNET-permission check - this app does not declare INTERNET in its
+     * own manifest, so such a check would always read "denied" and permanently disable the
+     * VPN-excluding path. What matters, and is pinned here, is that accounting degrades to the
+     * device totals instead of failing or reporting nothing when the interface set is hidden.
+     */
+
+    @Test
+    fun `networks without readable capabilities fall back to device totals`() = runTest {
+        val hidden = mockk<Network>()
+        every { connectivityManager.getNetworkCapabilities(hidden) } returns null
+        every { connectivityManager.getLinkProperties(hidden) } returns null
+        networks = listOf(hidden)
+        every { TrafficStats.getTotalRxBytes() } returns 1_000L
+        every { TrafficStats.getTotalTxBytes() } returns 100L
+        val snapshot = newSnapshot()
+        snapshot.tick()
+        snapshot.setCurrentAsLast()
+
+        every { TrafficStats.getTotalRxBytes() } returns 3_000L
+        every { TrafficStats.getTotalTxBytes() } returns 600L
+        snapshot.tick()
+
+        assertEquals(2_000L, snapshot.downSpeed)
+        assertEquals(500L, snapshot.upSpeed)
+    }
+
+    @Test
+    fun `networks reporting no usable transport fall back to device totals`() = runTest {
+        networks = listOf(networkWith("wlan0" /* name is irrelevant: no transports reported */))
+        every { TrafficStats.getTotalRxBytes() } returns 10_000L
+        val snapshot = newSnapshot()
+        snapshot.tick()
+        snapshot.setCurrentAsLast()
+
+        every { TrafficStats.getTotalRxBytes() } returns 12_500L
+        snapshot.tick()
+
+        assertEquals(2_500L, snapshot.downSpeed)
+    }
 }
