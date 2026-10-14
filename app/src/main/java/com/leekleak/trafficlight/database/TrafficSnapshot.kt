@@ -116,6 +116,7 @@ class TrafficSnapshot internal constructor(
     @Volatile private var callbackActive = false
     @Volatile private var lastInterfaceRefreshMs = 0L
     @Volatile private var networkCallback: ConnectivityManager.NetworkCallback? = null
+    @Volatile private var loggedPerInterfaceUnsupported = false
 
     init {
         appPreferenceRepo.forceFallback
@@ -244,18 +245,31 @@ class TrafficSnapshot internal constructor(
         if (interfaces.isEmpty()) {
             // No physical (Wi-Fi/cellular/Ethernet) network is visible to this app right
             // now - can happen transiently during a network handover, or on an unusual
-            // setup where only a VPN network is reported. Total counters are the best
-            // remaining source, even though they can double-count VPN traffic; there is
-            // no physical-only source left to fall back to.
-            currentSourceKey = SOURCE_TOTAL
-            currentDown = TrafficStats.getTotalRxBytes()
-            currentUp = TrafficStats.getTotalTxBytes()
+            // setup where only a VPN network is reported (or the platform hides networks
+            // altogether). Total counters are the best remaining source, even though they
+            // can double-count VPN traffic; there is no physical-only source left.
+            sampleDeviceTotals()
+            return
+        }
+
+        val rx = interfaces.map { TrafficStats.getRxBytes(it) }
+        val tx = interfaces.map { TrafficStats.getTxBytes(it) }
+        if (perInterfaceCountersUnsupported(rx, tx)) {
+            // The platform does not serve per-interface counters to this app (upstream only
+            // used them on API 31+; a hard SDK cut-off is not assumed here, the platform's
+            // own answer decides). Without this, every interface would read as 0 and the
+            // speed would be stuck at 0 even though traffic is flowing.
+            if (!loggedPerInterfaceUnsupported) {
+                loggedPerInterfaceUnsupported = true
+                Timber.w("Per-interface TrafficStats unsupported for %s; using device totals", interfaces)
+            }
+            sampleDeviceTotals()
             return
         }
 
         currentSourceKey = interfaces.sorted().joinToString(",")
-        currentDown = interfaces.sumOf { it.rxBytesOrZero() }
-        currentUp = interfaces.sumOf { it.txBytesOrZero() }
+        currentDown = rx.sumOf { it.unsupportedAsZero() }
+        currentUp = tx.sumOf { it.unsupportedAsZero() }
 
         // Fun fact: when switching networks the API sometimes messes up the values as per
         // https://issuetracker.google.com/issues/37009612
@@ -266,38 +280,13 @@ class TrafficSnapshot internal constructor(
         // platform itself on the interfaces we're already tracking.
     }
 
-    /**
-     * Interfaces backing the device's currently connected physical networks
-     * (Wi-Fi, cellular, Ethernet), discovered via [ConnectivityManager] instead of
-     * assumed names, so this keeps working on devices where those names differ
-     * and stays correct across VPN connect/disconnect: a VPN's own tunnel network
-     * always reports `TRANSPORT_VPN` and is excluded, while the physical network
-     * underneath it keeps being reported on its own, without that transport.
-     *
-     * This is a synchronous ConnectivityManager query (several Binder calls) - only meant to
-     * be called from [refreshInterfacesIfNeeded], on the IO dispatcher, to (re)populate
-     * [cachedPhysicalInterfaces]: on the first sample, after the NetworkCallback reported a
-     * change, or periodically when no callback could be registered. Ordinary ticks read the cache.
-     */
-    @Suppress("DEPRECATION")
-    private fun physicalInterfaceNamesNow(): List<String> =
-        connectivityManager.allNetworks
-            .mapNotNull { network ->
-                val capabilities = connectivityManager.getNetworkCapabilities(network) ?: return@mapNotNull null
-                val isPhysical = !capabilities.hasTransport(NetworkCapabilities.TRANSPORT_VPN) &&
-                        (capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) ||
-                                capabilities.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) ||
-                                capabilities.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET))
-                if (!isPhysical) return@mapNotNull null
-                connectivityManager.getLinkProperties(network)?.interfaceName
-            }
-            .distinct()
+    private fun sampleDeviceTotals() {
+        currentSourceKey = SOURCE_TOTAL
+        currentDown = TrafficStats.getTotalRxBytes()
+        currentUp = TrafficStats.getTotalTxBytes()
+    }
 
-    private fun String.rxBytesOrZero(): Long =
-        TrafficStats.getRxBytes(this).let { if (it == TrafficStats.UNSUPPORTED.toLong()) 0L else it }
-
-    private fun String.txBytesOrZero(): Long =
-        TrafficStats.getTxBytes(this).let { if (it == TrafficStats.UNSUPPORTED.toLong()) 0L else it }
+    private fun Long.unsupportedAsZero(): Long = if (this == TrafficStats.UNSUPPORTED.toLong()) 0L else this
 
     private fun fallbackUpdateSnapshot() {
         // Read everything first and publish afterwards, so a failure part-way through
@@ -363,4 +352,15 @@ internal fun bytesPerSecond(
     if (deltaBytes <= 0L) return 0L
     val elapsedMs = (currentElapsedRealtimeMs - lastElapsedRealtimeMs).coerceAtLeast(1L)
     return (deltaBytes.toDouble() * 1000.0 / elapsedMs).toLong()
+}
+
+/**
+ * `true` when the platform answered `TrafficStats.UNSUPPORTED` for *every* per-interface
+ * counter, in both directions - i.e. it does not provide per-interface statistics to this app
+ * at all, as opposed to one interface being momentarily absent. Empty input is not
+ * "unsupported" (no interfaces is handled separately by the caller).
+ */
+internal fun perInterfaceCountersUnsupported(rx: List<Long>, tx: List<Long>): Boolean {
+    val unsupported = TrafficStats.UNSUPPORTED.toLong()
+    return (rx.isNotEmpty() || tx.isNotEmpty()) && rx.all { it == unsupported } && tx.all { it == unsupported }
 }
