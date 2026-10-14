@@ -36,7 +36,6 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -68,6 +67,7 @@ import com.leekleak.trafficlight.ui.theme.card
 import com.leekleak.trafficlight.util.CategoryTitleSmallText
 import com.leekleak.trafficlight.util.DataSize
 import com.leekleak.trafficlight.util.formatted
+import com.leekleak.trafficlight.util.rememberIs24HourFormat
 import com.leekleak.trafficlight.util.toLocaleHourString
 import org.koin.androidx.compose.koinViewModel
 import org.koin.compose.koinInject
@@ -251,11 +251,13 @@ private fun HistoryRow(
             Box(modifier = Modifier.card().padding(6.dp).padding(bottom = Spacing.sm)) {
                 if (grouping == HistoryGrouping.Day) {
                     if (hourly.isNotEmpty()) {
-                        val context = LocalContext.current
-                        val barData = remember(hourly) {
+                        // Resolved once and observed; keyed below so labels re-format if the
+                        // system 12/24-hour setting changes while this is on screen.
+                        val is24HourFormat by rememberIs24HourFormat()
+                        val barData = remember(hourly, is24HourFormat) {
                             hourly.map {
                                 BarData(
-                                    x = it.start.toLocalTime().toLocaleHourString(context, short = true),
+                                    x = it.start.toLocalTime().toLocaleHourString(is24HourFormat, short = true),
                                     y1 = it.usage.usage1,
                                     y2 = 0L
                                 )

@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.Context.CONNECTIVITY_SERVICE
 import android.content.Context.NOTIFICATION_SERVICE
 import android.net.ConnectivityManager
+import com.leekleak.trafficlight.util.TimeFormatSource
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -26,4 +27,7 @@ val systemServiceModule = module {
     }
 
     single { CoroutineScope(Dispatchers.Default + SupervisorJob()) }
+
+    // Shared 12/24-hour clock preference; see TimeFormatSource.
+    single { TimeFormatSource(androidContext(), get()) }
 }

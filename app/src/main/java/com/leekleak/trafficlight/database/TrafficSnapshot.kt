@@ -1,6 +1,5 @@
 package com.leekleak.trafficlight.database
 
-import android.content.Context
 import android.net.ConnectivityManager
 import android.net.LinkProperties
 import android.net.Network
@@ -42,8 +41,8 @@ data class HourUsage(
     val end: LocalDateTime,
     val usage: DayUsage,
 ) {
-    fun toString(context: Context): String {
-        return "${start.toLocalTime().toLocaleHourString(context)} - ${end.toLocalTime().toLocaleHourString(context)}"
+    fun toString(is24HourFormat: Boolean): String {
+        return "${start.toLocalTime().toLocaleHourString(is24HourFormat)} - ${end.toLocalTime().toLocaleHourString(is24HourFormat)}"
     }
 }
 
