@@ -26,6 +26,10 @@ class TrafficLightApplication : Application() {
     override fun onCreate() {
         super.onCreate()
 
+        // Debug builds only (BuildConfig.DEBUG is false in release, so nothing is installed).
+        // Before anything else runs so startup work is covered too.
+        configureStrictMode(enabled = BuildConfig.DEBUG)
+
         createNotificationChannel()
         if (BuildConfig.DEBUG && Timber.forest().isEmpty()) {
             Timber.plant(Timber.DebugTree())
