@@ -3,7 +3,6 @@ package com.leekleak.trafficlight.widget
 import android.content.Context
 import androidx.glance.appwidget.GlanceAppWidgetManager
 import androidx.glance.appwidget.state.updateAppWidgetState
-import androidx.glance.appwidget.updateAll
 import androidx.glance.state.PreferencesGlanceStateDefinition
 import timber.log.Timber
 import kotlin.coroutines.cancellation.CancellationException

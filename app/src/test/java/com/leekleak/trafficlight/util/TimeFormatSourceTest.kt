@@ -3,7 +3,6 @@ package com.leekleak.trafficlight.util
 import android.content.Context
 import android.os.Looper
 import android.provider.Settings
-import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
