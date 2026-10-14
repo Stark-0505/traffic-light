@@ -9,6 +9,7 @@ import com.leekleak.trafficlight.database.databaseModule
 import com.leekleak.trafficlight.integrations.integrationsModule
 import com.leekleak.trafficlight.model.managerModule
 import com.leekleak.trafficlight.services.notifications.SpeedNotification
+import com.leekleak.trafficlight.services.notifications.deleteObsoleteChannels
 import com.leekleak.trafficlight.services.notifications.notificationModule
 import com.leekleak.trafficlight.ui.navigation.navigationModule
 import com.leekleak.trafficlight.ui.viewModelModule
@@ -48,6 +49,18 @@ class TrafficLightApplication : Application() {
             )
         }
         syncWidgetAlarm()
+        deleteObsoleteNotificationChannels()
+    }
+
+    /** Removes channels left behind by older builds (see NotificationChannelCleanup). */
+    private fun deleteObsoleteNotificationChannels() {
+        get<CoroutineScope>().launch(Dispatchers.IO) {
+            try {
+                (getSystemService(NOTIFICATION_SERVICE) as NotificationManager).deleteObsoleteChannels()
+            } catch (e: Exception) {
+                Timber.e(e, "Failed to delete obsolete notification channels")
+            }
+        }
     }
 
     /**
