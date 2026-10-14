@@ -44,6 +44,9 @@ class WidgetUpdateReceiver: BroadcastReceiver(), KoinComponent {
     override fun onReceive(context: Context, intent: Intent) {
         val pendingResult = goAsync()
         applicationScope.launchBroadcastWork(finish = pendingResult::finish) {
+            // Self-heal an alarm that outlived its widgets; never re-schedules (see the
+            // controller's doc).
+            if (!widgetAlarmController(context).cancelIfNoWidgets()) return@launchBroadcastWork
             try {
                 Widget().updateAll(context)
             } catch (e: IllegalArgumentException) {

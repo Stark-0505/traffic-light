@@ -66,6 +66,14 @@ class WidgetReceiver: GlanceAppWidgetReceiver(), KoinComponent {
         }
     }
 
+    override fun onEnabled(context: Context?) {
+        // First widget placed: the refresh alarm is only scheduled while one exists (see
+        // WidgetAlarmController), so this is where it starts for a fresh install or after the
+        // last widget had been removed. onDisabled() below is the counterpart.
+        context?.let { startAlarmManager(it) }
+        super.onEnabled(context)
+    }
+
     override fun onDisabled(context: Context?) {
         // onDisabled() fires when the last widget instance is removed. Without this, a
         // currently-scheduled alarm (screen was on when the widget got removed) would

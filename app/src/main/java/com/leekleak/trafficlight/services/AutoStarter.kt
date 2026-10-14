@@ -1,16 +1,14 @@
 package com.leekleak.trafficlight.services
 
-import android.appwidget.AppWidgetManager
 import android.content.BroadcastReceiver
-import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import com.leekleak.trafficlight.database.AppPreferenceRepo
 import com.leekleak.trafficlight.model.PermissionManager
 import com.leekleak.trafficlight.services.notifications.NotificationService
 import com.leekleak.trafficlight.util.launchBroadcastWork
-import com.leekleak.trafficlight.widget.WidgetReceiver
 import com.leekleak.trafficlight.widget.forceRefreshWidgets
+import com.leekleak.trafficlight.widget.placedWidgetCount
 import com.leekleak.trafficlight.widget.startAlarmManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.first
@@ -48,11 +46,7 @@ class AutoStarter : BroadcastReceiver(), KoinComponent {
                 // widget is actually placed. WidgetReceiver.onDisabled() cancels the alarm
                 // once the last widget is removed; this is the restart-time counterpart for
                 // "was already removed before this restart".
-                placedWidgetCount = {
-                    AppWidgetManager.getInstance(context)
-                        .getAppWidgetIds(ComponentName(context, WidgetReceiver::class.java))
-                        .size
-                },
+                placedWidgetCount = { placedWidgetCount(context) },
                 startWidgetAlarm = { startAlarmManager(context) },
                 forceRefreshWidgets = { forceRefreshWidgets(context) },
             ).restore()
