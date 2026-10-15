@@ -54,9 +54,7 @@ Make sure to follow the __issue template__ when reporting bugs or suggesting fea
 Contributors are welcome, however please create an issue first. When asking/adding features please elaborate why that feature is useful to you.
 
 ### Translations
-[<img src="https://hosted.weblate.org/widget/traffic-light/multi-auto.svg" alt="Translation status" />](https://hosted.weblate.org/engage/traffic-light/)
-
-Translation can be done on [Weblate](https://hosted.weblate.org/engage/traffic-light/)
+This fork is English-only: localized string resources are not included and the app does not declare a locale list, so translations are not accepted here. The upstream project's translations live at [Weblate](https://hosted.weblate.org/engage/traffic-light/).
 
 ## FAQ
 Check out the [wiki](https://github.com/leekleak/traffic-light/wiki) as the info you're looking may be there.

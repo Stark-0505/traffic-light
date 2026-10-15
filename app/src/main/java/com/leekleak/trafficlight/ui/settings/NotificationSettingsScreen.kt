@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
@@ -131,14 +132,19 @@ private fun BehaviorSettings() {
     )
 
     val forceFallback by appPreferenceRepo.forceFallback.collectAsState(false)
-    val doesFallbackWork = remember { TrafficSnapshot.doesFallbackWork() }
+    // The probe touches /sys, so it runs off the main thread. Until it reports (null) the
+    // toggle is shown disabled with the normal description, rather than briefly claiming
+    // that the fallback is unsupported.
+    val doesFallbackWork by produceState<Boolean?>(initialValue = null) {
+        value = TrafficSnapshot.doesFallbackWork()
+    }
     SwitchPreference(
         title = stringResource(R.string.force_fallback),
-        summary = if (doesFallbackWork) stringResource(R.string.force_fallback_description)
-        else stringResource(R.string.fallback_unsupported),
+        summary = if (doesFallbackWork == false) stringResource(R.string.fallback_unsupported)
+        else stringResource(R.string.force_fallback_description),
         icon = painterResource(R.drawable.fallback),
         value = forceFallback,
-        enabled = doesFallbackWork,
+        enabled = doesFallbackWork == true,
         onValueChanged = { scope.launch { appPreferenceRepo.setForceFallback(it) } }
     )
 }

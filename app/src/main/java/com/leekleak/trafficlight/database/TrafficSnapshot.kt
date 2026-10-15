@@ -1,6 +1,5 @@
 package com.leekleak.trafficlight.database
 
-import android.content.Context
 import android.net.ConnectivityManager
 import android.net.LinkProperties
 import android.net.Network
@@ -10,6 +9,7 @@ import android.net.TrafficStats
 import android.os.SystemClock
 import com.leekleak.trafficlight.model.DataUID
 import com.leekleak.trafficlight.util.toLocaleHourString
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -18,7 +18,8 @@ import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import timber.log.Timber
-import java.io.File
+import java.io.IOException
+import java.util.concurrent.atomic.AtomicBoolean
 import java.time.LocalDate
 import java.time.LocalDateTime
 
@@ -41,8 +42,8 @@ data class HourUsage(
     val end: LocalDateTime,
     val usage: DayUsage,
 ) {
-    fun toString(context: Context): String {
-        return "${start.toLocalTime().toLocaleHourString(context)} - ${end.toLocalTime().toLocaleHourString(context)}"
+    fun toString(is24HourFormat: Boolean): String {
+        return "${start.toLocalTime().toLocaleHourString(is24HourFormat)} - ${end.toLocalTime().toLocaleHourString(is24HourFormat)}"
     }
 }
 
@@ -76,10 +77,14 @@ data class HourUsage(
  * from the previous sample's, the measurement is rebaselined (reported as 0)
  * instead of diffing two unrelated counters.
  */
-class TrafficSnapshot (
+class TrafficSnapshot internal constructor(
     private val scope: CoroutineScope,
     private val appPreferenceRepo: AppPreferenceRepo,
     private val connectivityManager: ConnectivityManager,
+    private val fallbackCounters: SysfsFallbackCounters = SysfsFallbackCounters(),
+    // Where blocking counter reads run. `scope` is typically a lifecycleScope (i.e. Main),
+    // so the dispatcher is explicit and injectable rather than inherited from the caller.
+    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) {
     @Volatile private var lastDown: Long = 0
     @Volatile private var lastUp: Long = 0
@@ -91,14 +96,27 @@ class TrafficSnapshot (
     @Volatile private var currentElapsedRealtimeMs: Long = lastElapsedRealtimeMs
     @Volatile private var useFallback: Boolean = TrafficStats.getTotalTxBytes() == TrafficStats.UNSUPPORTED.toLong()
 
-    // physicalInterfaceNames() used to be recomputed from ConnectivityManager (allNetworks +
-    // getNetworkCapabilities + getLinkProperties per network - several Binder calls) on every
-    // single speed tick, i.e. roughly once a second for as long as the notification is
-    // showing. A NetworkCallback only fires on actual connectivity changes, so caching its
-    // result and having the tick loop just read the cache turns that into "a few Binder calls
-    // per network change" instead of "a few Binder calls per second, all day."
-    @Volatile private var cachedPhysicalInterfaces: List<String> = physicalInterfaceNamesNow()
-    private var networkCallback: ConnectivityManager.NetworkCallback? = null
+    // Interface discovery (ConnectivityManager.allNetworks + getNetworkCapabilities +
+    // getLinkProperties per network - several Binder calls) used to run on every speed tick,
+    // i.e. about once a second for as long as the notification showed. It now runs only when
+    // needed, and always from sample() on the IO dispatcher:
+    //
+    //  - The NetworkCallback below does no Binder work itself: it only marks the cache dirty.
+    //    A single connectivity change typically fires several callbacks back-to-back
+    //    (available + capabilities + link properties), and capabilities callbacks also fire
+    //    for signal-strength changes; marking dirty is idempotent, so any number of events
+    //    between two ticks costs one discovery at the next tick, not one per event.
+    //  - The cache starts empty and dirty, so construction (typically on the main thread)
+    //    performs no Binder calls; the first sample discovers.
+    //  - If the callback could not be registered, nothing would ever mark the cache dirty, so
+    //    sample() instead re-discovers every POLLING_REFRESH_INTERVAL_MS. That keeps handovers
+    //    and VPN attach/detach reflected without returning to a Binder query per tick.
+    @Volatile private var cachedPhysicalInterfaces: List<String> = emptyList()
+    private val interfacesDirty = AtomicBoolean(true)
+    @Volatile private var callbackActive = false
+    @Volatile private var lastInterfaceRefreshMs = 0L
+    @Volatile private var networkCallback: ConnectivityManager.NetworkCallback? = null
+    @Volatile private var loggedPerInterfaceUnsupported = false
 
     init {
         appPreferenceRepo.forceFallback
@@ -106,16 +124,17 @@ class TrafficSnapshot (
             .launchIn(scope)
 
         val callback = object : ConnectivityManager.NetworkCallback() {
-            override fun onAvailable(network: Network) = refreshCachedInterfaces()
-            override fun onLost(network: Network) = refreshCachedInterfaces()
-            override fun onCapabilitiesChanged(network: Network, capabilities: NetworkCapabilities) = refreshCachedInterfaces()
-            override fun onLinkPropertiesChanged(network: Network, linkProperties: LinkProperties) = refreshCachedInterfaces()
+            override fun onAvailable(network: Network) = markInterfacesDirty()
+            override fun onLost(network: Network) = markInterfacesDirty()
+            override fun onCapabilitiesChanged(network: Network, capabilities: NetworkCapabilities) = markInterfacesDirty()
+            override fun onLinkPropertiesChanged(network: Network, linkProperties: LinkProperties) = markInterfacesDirty()
         }
         try {
             connectivityManager.registerNetworkCallback(NetworkRequest.Builder().build(), callback)
             networkCallback = callback
+            callbackActive = true
         } catch (e: SecurityException) {
-            Timber.e(e, "Failed to register network callback; falling back to per-tick interface discovery")
+            Timber.e(e, "Failed to register network callback; polling interface discovery every ${POLLING_REFRESH_INTERVAL_MS}ms instead")
         }
         // Whichever CoroutineScope this TrafficSnapshot belongs to ends together with the
         // thing that owns it (the notification service's lifecycleScope) - tying the
@@ -128,6 +147,9 @@ class TrafficSnapshot (
     fun stopTrackingNetworkChanges() {
         networkCallback?.let {
             networkCallback = null
+            // No more events will mark the cache dirty; if this snapshot is sampled again it
+            // must poll rather than trust a cache nothing can invalidate.
+            callbackActive = false
             try {
                 connectivityManager.unregisterNetworkCallback(it)
             } catch (e: IllegalArgumentException) {
@@ -137,8 +159,25 @@ class TrafficSnapshot (
         }
     }
 
-    private fun refreshCachedInterfaces() {
-        cachedPhysicalInterfaces = physicalInterfaceNamesNow()
+    private fun markInterfacesDirty() {
+        interfacesDirty.set(true)
+    }
+
+    /** Re-discovers physical interfaces if flagged dirty, or (no callback) if the cache is old. */
+    private fun refreshInterfacesIfNeeded(nowMs: Long) {
+        // Cleared *before* querying: an event that arrives during the query re-marks the
+        // cache dirty and is picked up by the next tick instead of being lost.
+        val dirty = interfacesDirty.getAndSet(false)
+        val stale = !callbackActive && nowMs - lastInterfaceRefreshMs >= POLLING_REFRESH_INTERVAL_MS
+        if (!dirty && !stale) return
+        lastInterfaceRefreshMs = nowMs
+        try {
+            cachedPhysicalInterfaces = physicalInterfaceNamesNow()
+        } catch (e: SecurityException) {
+            // Keep the last known interfaces: better a possibly outdated set (a source change
+            // is still caught by the rebaseline) than none. A later event or poll retries.
+            Timber.e(e, "Interface discovery denied; keeping previous interfaces")
+        }
     }
 
     val totalSpeed: Long
@@ -157,51 +196,80 @@ class TrafficSnapshot (
         lastElapsedRealtimeMs = currentElapsedRealtimeMs
     }
 
+    /**
+     * Takes a new counter sample. Suspends on [ioDispatcher] for the whole sample - the
+     * TrafficStats queries and, in fallback mode, the sysfs file reads - so it is safe to
+     * call from a main-dispatcher scope, and costs one dispatcher switch per tick.
+     *
+     * The sample is written to the `current*` fields only from within this block, and the
+     * only readers ([upSpeed], [downSpeed], [isCurrentSameAsLast], [setCurrentAsLast]) run
+     * after this call returns in the same coroutine, so a sample is never observed half-written.
+     */
     suspend fun updateSnapshot() {
+        withContext(ioDispatcher) { sample() }
+    }
+
+    private fun sample() {
         currentElapsedRealtimeMs = SystemClock.elapsedRealtime()
         if (useFallback) {
             try {
                 fallbackUpdateSnapshot()
-            } catch (e: java.io.IOException) {
-                Timber.e(e, "Fallback IO error")
-                scope.launch { appPreferenceRepo.setForceFallback(false) }
-                useFallback = false
+            } catch (e: IOException) {
+                disableFallback("Fallback IO error", e)
             } catch (e: NumberFormatException) {
-                Timber.e(e, "Fallback number format error")
-                scope.launch { appPreferenceRepo.setForceFallback(false) }
-                useFallback = false
+                disableFallback("Fallback number format error", e)
             } catch (e: SecurityException) {
                 // The device's SELinux policy can deny raw sysfs traversal
                 // (/sys/class/net/*) to untrusted apps even when the file's plain Unix
                 // permissions look readable - canRead() only checks the latter. This
                 // fallback is a last resort for devices without a working TrafficStats,
                 // so if the OS won't allow it either, stop retrying it every tick.
-                Timber.e(e, "Fallback denied by SELinux policy")
-                scope.launch { appPreferenceRepo.setForceFallback(false) }
-                useFallback = false
+                disableFallback("Fallback denied by SELinux policy", e)
             }
+            // CancellationException is deliberately not caught: withContext() cancellation
+            // surfaces at the dispatcher boundary and must propagate to the caller.
         } else {
             regularUpdateSnapshot()
         }
     }
 
-    private suspend fun regularUpdateSnapshot() = withContext(Dispatchers.IO) {
+    private fun disableFallback(reason: String, e: Exception) {
+        Timber.e(e, reason)
+        scope.launch { appPreferenceRepo.setForceFallback(false) }
+        useFallback = false
+    }
+
+    private fun regularUpdateSnapshot() {
+        refreshInterfacesIfNeeded(currentElapsedRealtimeMs)
         val interfaces = cachedPhysicalInterfaces
         if (interfaces.isEmpty()) {
             // No physical (Wi-Fi/cellular/Ethernet) network is visible to this app right
             // now - can happen transiently during a network handover, or on an unusual
-            // setup where only a VPN network is reported. Total counters are the best
-            // remaining source, even though they can double-count VPN traffic; there is
-            // no physical-only source left to fall back to.
-            currentSourceKey = SOURCE_TOTAL
-            currentDown = TrafficStats.getTotalRxBytes()
-            currentUp = TrafficStats.getTotalTxBytes()
-            return@withContext
+            // setup where only a VPN network is reported (or the platform hides networks
+            // altogether). Total counters are the best remaining source, even though they
+            // can double-count VPN traffic; there is no physical-only source left.
+            sampleDeviceTotals()
+            return
+        }
+
+        val rx = interfaces.map { TrafficStats.getRxBytes(it) }
+        val tx = interfaces.map { TrafficStats.getTxBytes(it) }
+        if (perInterfaceCountersUnsupported(rx, tx)) {
+            // The platform does not serve per-interface counters to this app (upstream only
+            // used them on API 31+; a hard SDK cut-off is not assumed here, the platform's
+            // own answer decides). Without this, every interface would read as 0 and the
+            // speed would be stuck at 0 even though traffic is flowing.
+            if (!loggedPerInterfaceUnsupported) {
+                loggedPerInterfaceUnsupported = true
+                Timber.w("Per-interface TrafficStats unsupported for %s; using device totals", interfaces)
+            }
+            sampleDeviceTotals()
+            return
         }
 
         currentSourceKey = interfaces.sorted().joinToString(",")
-        currentDown = interfaces.sumOf { it.rxBytesOrZero() }
-        currentUp = interfaces.sumOf { it.txBytesOrZero() }
+        currentDown = rx.sumOf { it.unsupportedAsZero() }
+        currentUp = tx.sumOf { it.unsupportedAsZero() }
 
         // Fun fact: when switching networks the API sometimes messes up the values as per
         // https://issuetracker.google.com/issues/37009612
@@ -212,6 +280,14 @@ class TrafficSnapshot (
         // platform itself on the interfaces we're already tracking.
     }
 
+    private fun sampleDeviceTotals() {
+        currentSourceKey = SOURCE_TOTAL
+        currentDown = TrafficStats.getTotalRxBytes()
+        currentUp = TrafficStats.getTotalTxBytes()
+    }
+
+    private fun Long.unsupportedAsZero(): Long = if (this == TrafficStats.UNSUPPORTED.toLong()) 0L else this
+
     /**
      * Interfaces backing the device's currently connected physical networks
      * (Wi-Fi, cellular, Ethernet), discovered via [ConnectivityManager] instead of
@@ -220,10 +296,10 @@ class TrafficSnapshot (
      * always reports `TRANSPORT_VPN` and is excluded, while the physical network
      * underneath it keeps being reported on its own, without that transport.
      *
-     * This is a synchronous, immediate ConnectivityManager query - only meant to be called
-     * to (re)populate [cachedPhysicalInterfaces], i.e. once at construction and again from
-     * [refreshCachedInterfaces] when the registered NetworkCallback reports an actual
-     * change. The speed-tick loop itself never calls this directly; it reads the cache.
+     * This is a synchronous ConnectivityManager query (several Binder calls) - only meant to
+     * be called from [refreshInterfacesIfNeeded], on the IO dispatcher, to (re)populate
+     * [cachedPhysicalInterfaces]: on the first sample, after the NetworkCallback reported a
+     * change, or periodically when no callback could be registered. Ordinary ticks read the cache.
      */
     @Suppress("DEPRECATION")
     private fun physicalInterfaceNamesNow(): List<String> =
@@ -239,37 +315,38 @@ class TrafficSnapshot (
             }
             .distinct()
 
-    private fun String.rxBytesOrZero(): Long =
-        TrafficStats.getRxBytes(this).let { if (it == TrafficStats.UNSUPPORTED.toLong()) 0L else it }
-
-    private fun String.txBytesOrZero(): Long =
-        TrafficStats.getTxBytes(this).let { if (it == TrafficStats.UNSUPPORTED.toLong()) 0L else it }
-
     private fun fallbackUpdateSnapshot() {
+        // Read everything first and publish afterwards, so a failure part-way through
+        // (unreadable or malformed file) leaves the previous sample fully intact instead
+        // of a mix of old and new values.
+        val reading = fallbackCounters.read()
         currentSourceKey = SOURCE_FALLBACK
-        val mobileUp = mobileTxFile.readLongOrZero()
-        val mobileDown = mobileRxFile.readLongOrZero()
-        val wifiUp = wifiTxFile.readLongOrZero() + ethTxFile.readLongOrZero()
-        val wifiDown = wifiRxFile.readLongOrZero() + ethRxFile.readLongOrZero()
-        currentUp = mobileUp + wifiUp
-        currentDown = mobileDown + wifiDown
+        currentUp = reading.up
+        currentDown = reading.down
     }
 
     fun isCurrentSameAsLast(): Boolean = lastDown == currentDown && lastUp == currentUp
-
-    private fun File.readLongOrZero() = if (canRead()) readText().trim().toLong() else 0L
 
     companion object {
         private const val SOURCE_TOTAL = "total"
         private const val SOURCE_FALLBACK = "fallback"
 
-        private val mobileRxFile: File by lazy { File("/sys/class/net/rmnet0/statistics/rx_bytes") }
-        private val mobileTxFile: File by lazy { File("/sys/class/net/rmnet0/statistics/tx_bytes") }
-        private val wifiRxFile: File by lazy { File("/sys/class/net/wlan0/statistics/rx_bytes") }
-        private val wifiTxFile: File by lazy { File("/sys/class/net/wlan0/statistics/tx_bytes") }
-        private val ethRxFile: File by lazy { File("/sys/class/net/eth0/statistics/rx_bytes") }
-        private val ethTxFile: File by lazy { File("/sys/class/net/eth0/statistics/tx_bytes") }
-        fun doesFallbackWork(): Boolean = mobileRxFile.canRead() || wifiRxFile.canRead() || ethRxFile.canRead()
+        /** Re-discovery period when no NetworkCallback is available to flag changes. */
+        internal const val POLLING_REFRESH_INTERVAL_MS = 2_000L
+
+        private val defaultFallbackCounters: SysfsFallbackCounters by lazy { SysfsFallbackCounters() }
+
+        /**
+         * Whether the sysfs fallback can read any counter on this device. Touches the
+         * filesystem, so it suspends on the IO dispatcher - never call it during
+         * composition; collect it from a coroutine (e.g. `produceState`) instead.
+         */
+        suspend fun doesFallbackWork(): Boolean = doesFallbackWork(defaultFallbackCounters, Dispatchers.IO)
+
+        internal suspend fun doesFallbackWork(
+            counters: SysfsFallbackCounters,
+            ioDispatcher: CoroutineDispatcher,
+        ): Boolean = withContext(ioDispatcher) { counters.isAvailable() }
     }
 }
 
@@ -302,4 +379,15 @@ internal fun bytesPerSecond(
     if (deltaBytes <= 0L) return 0L
     val elapsedMs = (currentElapsedRealtimeMs - lastElapsedRealtimeMs).coerceAtLeast(1L)
     return (deltaBytes.toDouble() * 1000.0 / elapsedMs).toLong()
+}
+
+/**
+ * `true` when the platform answered `TrafficStats.UNSUPPORTED` for *every* per-interface
+ * counter, in both directions - i.e. it does not provide per-interface statistics to this app
+ * at all, as opposed to one interface being momentarily absent. Empty input is not
+ * "unsupported" (no interfaces is handled separately by the caller).
+ */
+internal fun perInterfaceCountersUnsupported(rx: List<Long>, tx: List<Long>): Boolean {
+    val unsupported = TrafficStats.UNSUPPORTED.toLong()
+    return (rx.isNotEmpty() || tx.isNotEmpty()) && rx.all { it == unsupported } && tx.all { it == unsupported }
 }

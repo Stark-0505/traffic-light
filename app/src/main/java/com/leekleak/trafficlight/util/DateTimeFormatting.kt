@@ -1,7 +1,5 @@
 package com.leekleak.trafficlight.util
 
-import android.content.Context
-import android.text.format.DateFormat
 import java.time.DayOfWeek
 import java.time.Instant
 import java.time.LocalDate
@@ -22,11 +20,21 @@ fun fromTimestamp(stamp: Long): LocalDateTime {
     )
 }
 
-fun LocalTime.toLocaleHourString(context: Context, short: Boolean = false): String {
-    val pattern = if (DateFormat.is24HourFormat(context)) "HH:mm"
+/**
+ * Formats a time of day as `HH:mm` (24-hour) or `hh:mm a` / `hh a` (12-hour, [short]).
+ *
+ * Pure: the caller supplies the already-resolved clock preference (see
+ * [rememberIs24HourFormat]) rather than this function asking the system on every call -
+ * resolving it is a Binder round trip, and charts format one label per hour.
+ */
+fun LocalTime.toLocaleHourString(
+    is24HourFormat: Boolean,
+    short: Boolean = false,
+    locale: Locale = Locale.getDefault(),
+): String {
+    val pattern = if (is24HourFormat) "HH:mm"
         else (if (short) "hh a" else "hh:mm a")
-    val formatter = DateTimeFormatter.ofPattern(pattern, Locale.getDefault())
-    return format(formatter)
+    return format(DateTimeFormatter.ofPattern(pattern, locale))
 }
 
 fun DayOfWeek.getName(style: TextStyle) =
