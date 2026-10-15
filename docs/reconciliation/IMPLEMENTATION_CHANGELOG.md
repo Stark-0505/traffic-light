@@ -18,5 +18,6 @@ Every commit added on top of the fork's original HEAD (`a8beb2e`, tagged `backup
 | 12 | `3e97199` fix: avoid Long.MAX_VALUE as the speed notification's when timestamp | Overflow-safe ordering timestamp (Long ten-year offset); upstream's Int-overflowing constant not copied. | upstream 1fddad6, 0da3814 | `NotificationOrdering.kt`, `SpeedNotification.kt` | `NotificationOrderingTest.kt` |
 | 13 | `b50c9c7` fix: use device totals when the platform serves no per-interface counters | Runtime detection of unsupported per-interface TrafficStats; falls back to totals instead of a stuck 0. | upstream 351dd77 (one idea) | `TrafficSnapshot.kt` | `TrafficSnapshotPerInterfaceSupportTest.kt` |
 | 14 | `1852f3b` chore: remove unused imports from new code | Static-audit cleanup; no behaviour change. | housekeeping | `WidgetRefresh.kt` | `TimeFormatSourceTest.kt` |
+| 15 | `6e3c97c` fix: restore physicalInterfaceNamesNow deleted by the per-interface support commit | Restores a function accidentally deleted in `b50c9c7`; fixes the compile error found by the owner's first Gradle build. | owner build report | `TrafficSnapshot.kt` | - |
 
 The documentation commit that adds this file is the final commit on the branch; see `git log`.

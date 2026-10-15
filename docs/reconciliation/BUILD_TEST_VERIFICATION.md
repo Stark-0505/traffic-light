@@ -4,6 +4,21 @@ Status vocabulary: **PASSED** = executed and succeeded · **FAILED** = executed 
 reason given · **SKIPPED** = deliberately not run · **STATIC** = reviewed or parsed, not executed.
 Nothing below is reported as passed unless it was executed.
 
+## 0. Update after the owner's first real build
+
+The first real Gradle run (owner's machine, `./gradlew clean assembleFullRelease`, Gradle 9.6.1, SDK at `~/Android/Sdk`)
+**failed to compile**:
+
+```
+e: .../database/TrafficSnapshot.kt:175:40 Unresolved reference 'physicalInterfaceNamesNow'.
+```
+
+Cause and fix: commit `b50c9c7` accidentally deleted `physicalInterfaceNamesNow()` while splicing text; it was restored verbatim in
+`6e3c97c`. The authoring-environment checks below (syntax parse, import audit, harness) could not detect a missing function inside
+a file, which is exactly what they were not able to verify. That failure was the first and only compile error reported so far;
+the build had **not** yet been re-run after the fix when this note was written, so the sections below still describe only the
+authoring-environment checks, and the full Gradle verification remains outstanding.
+
 ## 1. Environment
 
 | Item | Value |

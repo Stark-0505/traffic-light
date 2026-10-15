@@ -13,7 +13,7 @@ behaviour was re-implemented against the fork's current architecture.
 
 ## 1. Executive summary
 
-* 15 new commits (14 code/test commits plus one documentation commit) on branch `reconcile/upstream-selective-backport`, on top of
+* 17 new commits (15 code/test commits plus two documentation commits) on branch `reconcile/upstream-selective-backport`, on top of
   the untouched fork HEAD `a8beb2e` (backup tag `backup/fork-head-a8beb2e`).
 * All 91 upstream-only commits were read and classified ([ledger](upstream-commit-decision-ledger.csv)):
   **11 adapted** (10 fully, 1 partially), **15 deferred**, **18 irrelevant**, **45 excluded by product scope**
@@ -156,7 +156,7 @@ widgets"; revert `AutoStarter`'s action filter to `BOOT_COMPLETED` plus keep the
 
 ## 7. Known risks and unverified assumptions
 
-1. **Nothing was built or run under Gradle.** A compile error somewhere is possible. Imports and symbols in every changed
+1. **Nothing in this report was verified by a Gradle build.** The owner's first build found one compile error (a function accidentally deleted in `b50c9c7`, restored in `6e3c97c`); others are possible. The build has not been re-run since that fix. Imports and symbols in every changed
    file were audited with a script, and every file was syntax-checked, but type checking was not done.
 2. **57 of the 101 new tests need Robolectric/mockk and have never run.** Specific assumptions: `ShadowContentResolver.getContentObservers(uri)`
    exists as a static in Robolectric 4.16.1; `StrictMode.*Policy.toString()` reflects the mask; mockk overload resolution for
