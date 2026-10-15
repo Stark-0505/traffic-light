@@ -288,6 +288,33 @@ class TrafficSnapshot internal constructor(
 
     private fun Long.unsupportedAsZero(): Long = if (this == TrafficStats.UNSUPPORTED.toLong()) 0L else this
 
+    /**
+     * Interfaces backing the device's currently connected physical networks
+     * (Wi-Fi, cellular, Ethernet), discovered via [ConnectivityManager] instead of
+     * assumed names, so this keeps working on devices where those names differ
+     * and stays correct across VPN connect/disconnect: a VPN's own tunnel network
+     * always reports `TRANSPORT_VPN` and is excluded, while the physical network
+     * underneath it keeps being reported on its own, without that transport.
+     *
+     * This is a synchronous ConnectivityManager query (several Binder calls) - only meant to
+     * be called from [refreshInterfacesIfNeeded], on the IO dispatcher, to (re)populate
+     * [cachedPhysicalInterfaces]: on the first sample, after the NetworkCallback reported a
+     * change, or periodically when no callback could be registered. Ordinary ticks read the cache.
+     */
+    @Suppress("DEPRECATION")
+    private fun physicalInterfaceNamesNow(): List<String> =
+        connectivityManager.allNetworks
+            .mapNotNull { network ->
+                val capabilities = connectivityManager.getNetworkCapabilities(network) ?: return@mapNotNull null
+                val isPhysical = !capabilities.hasTransport(NetworkCapabilities.TRANSPORT_VPN) &&
+                        (capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) ||
+                                capabilities.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) ||
+                                capabilities.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET))
+                if (!isPhysical) return@mapNotNull null
+                connectivityManager.getLinkProperties(network)?.interfaceName
+            }
+            .distinct()
+
     private fun fallbackUpdateSnapshot() {
         // Read everything first and publish afterwards, so a failure part-way through
         // (unreadable or malformed file) leaves the previous sample fully intact instead
